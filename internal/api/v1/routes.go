@@ -34,6 +34,7 @@ func (a *API) routes() {
 
 	authH := NewAuthHandler(a.cfg, usvc, ss)
 	userH := NewUserHandler(ss)
+	adminH := NewAdminHandler(ss)
 
 	r := a.router
 	// auth routes
@@ -46,9 +47,15 @@ func (a *API) routes() {
 	})
 
 	r.Route("/users", func(r chi.Router) {
-		r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Get("/", userH.ListUsers)
-		r.Get("/{id}", userH.GetUser)
-		r.Put("/{id}", userH.UpdateUser)
+		r.With(auth.AuthMiddleware(a.store)).Get("/", userH.ListUsers)
+		r.With(auth.AuthMiddleware(a.store)).Get("/me", userH.GetSelfProfile)
+		r.With(auth.AuthMiddleware(a.store)).Get("/{id}", userH.GetUser)
+		r.With(auth.AuthMiddleware(a.store)).Put("/{id}", userH.UpdateUser)
+	})
+
+	r.Route("/admin", func(r chi.Router) {
+		// r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Get("/dashboard", adminH.AdminDashboard)
+		r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Put("/user/{id}", adminH.UpdateUserStatus)
 	})
 
 	r.Route("/health", func(r chi.Router) {

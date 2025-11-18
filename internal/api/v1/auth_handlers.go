@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	// "errors"
 	"net/http"
@@ -54,7 +55,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := models.RoleStudent // default role
-	user, err := h.user.CreateUser(r.Context(), req.Email, req.Password, req.FirstName, req.LastName, role)
+	user, err := h.user.CreateUser(r.Context(), req.Email, req.Password, req.FirstName, req.LastName, role, "")
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "error creating user", nil, err.Error())
 		return
@@ -168,9 +169,6 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}, nil)
 }
 
-
-
-
 func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code string `json:"code"` // now expecting authorization code from client
@@ -179,6 +177,7 @@ func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "bad request", nil, "missing code")
 		return
 	}
+	fmt.Println("yo myan back2back")
 
 	ctx := context.Background()
 	oauthCfg := &oauth2.Config{
@@ -218,12 +217,13 @@ func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	}
 	firstName, _ := payload.Claims["given_name"].(string)
 	lastName, _ := payload.Claims["family_name"].(string)
+	picture, _ := payload.Claims["picture"].(string)
 
 	// find or create user (passwordless)
 	u, err := h.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		// Create user with nil password (passwordless Google user). CreateUser should accept empty password.
-		user, err2 := h.user.CreateUser(ctx, email, "", firstName, lastName, "student")
+		user, err2 := h.user.CreateUser(ctx, email, "", firstName, lastName, "student", picture)
 		if err2 != nil {
 			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error creating user", nil, err2.Error())
 			return
@@ -256,15 +256,6 @@ func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
 	resp := tokenResp{AccessToken: access, RefreshToken: rt, ExpiresIn: int64(h.cfg.AccessTokenTTL.Seconds())}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "login successful", resp, nil)
 }
-
-
-
-
-
-
-
-
-
 
 // // Google sign-in: accept id_token, validate, create/link user, return tokens if approved
 // func (h *AuthHandler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
