@@ -180,3 +180,8 @@ func (s *Store) CanAccessNoteForRequester(ctx context.Context, requester *models
 		return false
 	}
 }
+
+
+
+
+
