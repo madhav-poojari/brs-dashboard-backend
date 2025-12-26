@@ -180,3 +180,24 @@ func (s *Store) CanAccessNoteForRequester(ctx context.Context, requester *models
 		return false
 	}
 }
+
+func (s *Store) GetNotes(ctx context.Context, role models.Role) ([]*models.Note, error) {
+	var notes []*models.Note
+	var visibility []int
+
+	switch role {
+	case models.RoleAdmin:
+		visibility = []int{1, 2, 3, 4}
+	case models.RoleMentor:
+		visibility = []int{2, 3, 4}
+	case models.RoleCoach:
+		visibility = []int{3, 4}
+	case models.RoleStudent:
+		visibility = []int{4}
+	default:
+		return nil, errors.New("invalid role")
+	}
+
+	err := s.DB.WithContext(ctx).Where("visibility IN ?", visibility).Find(&notes).Error
+	return notes, err
+}

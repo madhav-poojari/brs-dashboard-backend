@@ -61,11 +61,12 @@ func (a *API) routes() {
 	})
 	// notes routes (protected)
 	r.Route("/notes", func(r chi.Router) {
-		r.Group(func(r chi.Router) {
+		r.Group(func(r chi.Router) { 
 			r.Use(auth.AuthMiddleware(ss.Store))
 			r.Post("/", notesH.CreateNote)
 			r.Post("/lesson-plans", notesH.CreateLessonPlan)
 			r.Get("/", notesH.GetNotesByUser)
+			r.Get("/by-role", notesH.GetNotes)
 			r.Patch("/{id}", notesH.UpdateNote)
 			r.Delete("/{id}", notesH.DeleteNote)
 		})
@@ -73,6 +74,7 @@ func (a *API) routes() {
 
 	r.Route("/users", func(r chi.Router) {
 		r.With(auth.AuthMiddleware(a.store)).Get("/", userH.ListUsers)
+		r.With(auth.AuthMiddleware(a.store)).Get("/students", userH.ListUsers) // Alias for frontend convenience
 		r.With(auth.AuthMiddleware(a.store)).Get("/me", userH.GetSelfProfile)
 		r.With(auth.AuthMiddleware(a.store)).Get("/{id}", userH.GetUser)
 		r.With(auth.AuthMiddleware(a.store)).Put("/{id}", userH.UpdateUser)

@@ -86,7 +86,7 @@ func (h *NotesHandler) CreateNote(w http.ResponseWriter, r *http.Request) {
 		CreatedBy:      current.ID,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
-	}
+	} 
 
 	if err := h.store.CreateNote(ctx, n); err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "create note failed", nil, err.Error())
@@ -264,4 +264,20 @@ func (h *NotesHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "deleted", nil, nil)
+}
+
+// GET /api/v1/notes/by-role
+func (h *NotesHandler) GetNotes(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+    current := auth.GetUserFromCtx(ctx)
+    if current == nil {
+        utils.WriteJSONResponse(w, http.StatusUnauthorized, false, "unauthorized", nil, nil)
+        return
+    }
+    notes, err := h.store.GetNotes(ctx, current.Role)
+    if err != nil {
+        utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching notes", nil, err.Error())
+        return
+    }
+    utils.WriteJSONResponse(w, http.StatusOK, true, "ok", notes, nil)
 }
