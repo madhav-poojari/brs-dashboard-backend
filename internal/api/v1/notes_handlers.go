@@ -153,6 +153,88 @@ func (h *NotesHandler) CreateLessonPlan(w http.ResponseWriter, r *http.Request) 
 	utils.WriteJSONResponse(w, http.StatusCreated, true, "lesson plan created", lp, nil)
 }
 
+// PATCH /api/v1/notes/lesson-plans/{id}
+func (h *NotesHandler) UpdateLessonPlan(w http.ResponseWriter, r *http.Request) {
+	planID := chi.URLParam(r, "id")
+	var req struct {
+		Title       *string  `json:"title"`
+		Description []string `json:"description"`
+		StartDate   *string  `json:"start_date"`
+		EndDate     *string  `json:"end_date"`
+		Result      *string  `json:"result"`
+		Active      *bool    `json:"active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request", nil, err.Error())
+		return
+	}
+
+	ctx := r.Context()
+	current := auth.GetUserFromCtx(ctx)
+	if current == nil {
+		utils.WriteJSONResponse(w, http.StatusUnauthorized, false, "unauthorized", nil, nil)
+		return
+	}
+
+	// Fetch the lesson plan to check ownership/permissions
+	var lp models.LessonPlan
+	if err := h.store.DB.WithContext(ctx).First(&lp, "id = ?", planID).Error; err != nil {
+		utils.WriteJSONResponse(w, http.StatusNotFound, false, "lesson plan not found", nil, err.Error())
+		return
+	}
+
+	// Permission Check: Admin or Mentor Coach of the student
+	// Only Admin and Mentor Coach can update the lesson plan
+	allowed := false
+	if current.Role == "admin" {
+		allowed = true
+	} else {
+		isMentor, err := h.store.IsMentorOf(ctx, current.ID, lp.UserID)
+		if err == nil && isMentor {
+			allowed = true
+		}
+	}
+
+	if !allowed {
+		utils.WriteJSONResponse(w, http.StatusForbidden, false, "forbidden", nil, nil)
+		return
+	}
+
+	// Build updates map
+	updates := map[string]interface{}{}
+	if req.Title != nil {
+		updates["title"] = *req.Title
+	}
+	if req.Description != nil {
+		updates["description"] = utils.DatatypesJSONFromStrings(req.Description)
+	}
+	if req.Result != nil {
+		updates["result"] = *req.Result
+	}
+	if req.Active != nil {
+		updates["active"] = *req.Active
+	}
+	if req.StartDate != nil {
+		if t, err := time.Parse(time.RFC3339, *req.StartDate); err == nil {
+			updates["start_date"] = t
+		}
+	}
+	if req.EndDate != nil {
+		if t, err := time.Parse(time.RFC3339, *req.EndDate); err == nil {
+			updates["end_date"] = t
+		}
+	}
+
+	if len(updates) > 0 {
+		if err := h.store.UpdateLessonPlanFields(ctx, planID, updates); err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "update failed", nil, err.Error())
+			return
+		}
+	}
+
+	utils.WriteJSONResponse(w, http.StatusOK, true, "lesson plan updated", nil, nil)
+}
+
 // GET /api/v1/notes/
 func (h *NotesHandler) GetNotesByUser(w http.ResponseWriter, r *http.Request) {
 	// userID := chi.URLParam(r, "id")

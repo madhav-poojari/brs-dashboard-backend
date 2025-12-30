@@ -143,6 +143,12 @@ func (s *Store) UpdateNoteFields(ctx context.Context, noteID string, updates map
 	return s.DB.WithContext(ctx).Model(&models.Note{}).Where("id = ?", noteID).Updates(updates).Error
 }
 
+func (s *Store) UpdateLessonPlanFields(ctx context.Context, planID string, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+	// LessonPlan ID is uint
+	return s.DB.WithContext(ctx).Model(&models.LessonPlan{}).Where("id = ?", planID).Updates(updates).Error
+}
+
 func (s *Store) DeleteNoteSoft(ctx context.Context, noteID string) error {
 	return s.DB.WithContext(ctx).Where("id = ?", noteID).Delete(&models.Note{}).Error
 }

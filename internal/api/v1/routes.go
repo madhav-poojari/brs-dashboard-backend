@@ -26,7 +26,7 @@ func NewAPI(cfg *config.Config, s *store.Store) *API {
 	// Use cors.Handler (not middleware.CORS)
 	api.router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
@@ -65,6 +65,7 @@ func (a *API) routes() {
 			r.Use(auth.AuthMiddleware(ss.Store))
 			r.Post("/", notesH.CreateNote)
 			r.Post("/lesson-plans", notesH.CreateLessonPlan)
+			r.Patch("/lesson-plans/{id}", notesH.UpdateLessonPlan)
 			r.Get("/", notesH.GetNotesByUser)
 			r.Patch("/{id}", notesH.UpdateNote)
 			r.Delete("/{id}", notesH.DeleteNote)
