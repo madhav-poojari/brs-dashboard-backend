@@ -59,6 +59,7 @@ func (a *API) routes() {
 	r := a.router
 	// auth routes
 	r.Route("/auth", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Post("/signup", authH.Signup)
 		r.Post("/login", authH.Login)
 		r.Post("/logout", authH.Logout)
@@ -67,6 +68,7 @@ func (a *API) routes() {
 	})
 	// notes routes (protected)
 	r.Route("/notes", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Group(func(r chi.Router) {
 			r.Use(auth.AuthMiddleware(ss.Store))
 			r.Post("/", notesH.CreateNote)
@@ -79,6 +81,7 @@ func (a *API) routes() {
 	})
 
 	r.Route("/users", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {}) 
 		r.With(auth.AuthMiddleware(a.store)).Get("/", userH.ListUsers)
 		r.With(auth.AuthMiddleware(a.store)).Get("/me", userH.GetSelfProfile)
 		r.With(auth.AuthMiddleware(a.store)).Get("/{id}", userH.GetUser)
@@ -86,11 +89,13 @@ func (a *API) routes() {
 	})
 
 	r.Route("/admin", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		// r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Get("/dashboard", adminH.AdminDashboard)
 		r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Put("/user/{id}", adminH.UpdateUserStatus)
 	})
 
 	r.Route("/health", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Get("/", HealthHandler(a.store))
 	})
 }
