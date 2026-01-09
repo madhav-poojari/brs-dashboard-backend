@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/madhava-poojari/dashboard-api/internal/store"
 	"github.com/madhava-poojari/dashboard-api/internal/utils"
 )
 
@@ -17,7 +16,6 @@ func NewAdminHandler(store serviceStore) *AdminHandler {
 	return &AdminHandler{store: store}
 }
 
-// UpdateUserStatus updates user fields (email, role, approved, active)
 func (h *AdminHandler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Email    *string `json:"email,omitempty"`
@@ -167,38 +165,6 @@ func (h *AdminHandler) AssignCoachToMentor(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "coach assigned to mentor successfully", nil, nil)
-}
-
-// UnassignStudent removes the student from their coach
-func (h *AdminHandler) UnassignStudent(w http.ResponseWriter, r *http.Request) {
-	studentID := chi.URLParam(r, "id")
-	if studentID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "student id is required", nil, nil)
-		return
-	}
-
-	err := h.store.UnassignStudent(r.Context(), studentID)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to unassign student", nil, err)
-		return
-	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "student unassigned successfully", nil, nil)
-}
-
-// UnassignCoachFromMentor removes the mentor assignment from a coach
-func (h *AdminHandler) UnassignCoachFromMentor(w http.ResponseWriter, r *http.Request) {
-	coachID := chi.URLParam(r, "id")
-	if coachID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "coach id is required", nil, nil)
-		return
-	}
-
-	err := h.store.UnassignCoachFromMentor(r.Context(), coachID)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to unassign coach from mentor", nil, err)
-		return
-	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "coach unassigned from mentor successfully", nil, nil)
 }
 
 // ListAllUsers returns all users grouped by role

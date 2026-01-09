@@ -186,19 +186,6 @@ func (s *Store) AssignCoachToMentor(ctx context.Context, coachID, mentorCoachID 
 		Update("mentor_coach_id", mentorCoachID).Error
 }
 
-// UnassignStudent removes the student from their coach
-func (s *Store) UnassignStudent(ctx context.Context, studentID string) error {
-	return s.DB.WithContext(ctx).Where("student_id = ?", studentID).Delete(&models.CoachStudent{}).Error
-}
-
-// UnassignCoachFromMentor removes the mentor assignment from a coach's students
-func (s *Store) UnassignCoachFromMentor(ctx context.Context, coachID string) error {
-	return s.DB.WithContext(ctx).
-		Model(&models.CoachStudent{}).
-		Where("coach_id = ?", coachID).
-		Update("mentor_coach_id", nil).Error
-}
-
 // GetAllUsersGrouped returns all users grouped by role for admin view
 func (s *Store) GetAllUsersGrouped(ctx context.Context) (map[string][]*models.User, error) {
 	result := make(map[string][]*models.User)
