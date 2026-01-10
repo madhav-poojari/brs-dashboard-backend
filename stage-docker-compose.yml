@@ -1,0 +1,34 @@
+version: "3.8"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dashboard
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  app:
+    build: .
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/dashboard?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+      - ACCESS_TOKEN_MINUTES=${ACCESS_TOKEN_MINUTES}
+      - REFRESH_TOKEN_DAYS=${REFRESH_TOKEN_DAYS}
+      - BIND_ADDR=:8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/srv/app
+    command: ["./dashboard-api"]
+
+volumes:
+  db-data:

@@ -1,9 +1,11 @@
 package v1
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware" // <--- Add this
-	"github.com/go-chi/cors"
+	// "github.com/go-chi/cors"
 	"github.com/madhava-poojari/dashboard-api/internal/auth"
 	"github.com/madhava-poojari/dashboard-api/internal/config"
 	"github.com/madhava-poojari/dashboard-api/internal/service"
@@ -24,14 +26,20 @@ func NewAPI(cfg *config.Config, s *store.Store) *API {
 	api := &API{cfg: cfg, router: chi.NewRouter(), store: s}
 	api.router.Use(middleware.Logger)
 	// Use cors.Handler (not middleware.CORS)
-	api.router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
+	// api.router.Use(cors.Handler(cors.Options{
+		// AllowedOrigins: []string{
+		// 	"http://localhost:5173",
+		// 	"http://stage-dashboard.brschess.com",
+		// 	"https://stage-dashboard.brschess.com",
+		// 	"http://dashboard.brschess.com",
+		// 	"https://dashboard.brschess.com",
+		// },
+		// AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		// AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		// ExposedHeaders:   []string{"Link"},
+		// AllowCredentials: true,
+		// MaxAge:           300,
+	// }))
 
 	api.routes()
 	return api
@@ -53,6 +61,7 @@ func (a *API) routes() {
 	r := a.router
 	// auth routes
 	r.Route("/auth", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Post("/signup", authH.Signup)
 		r.Post("/login", authH.Login)
 		r.Post("/logout", authH.Logout)
@@ -61,6 +70,7 @@ func (a *API) routes() {
 	})
 	// notes routes (protected)
 	r.Route("/notes", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Group(func(r chi.Router) {
 			r.Use(auth.AuthMiddleware(ss.Store))
 			r.Post("/", notesH.CreateNote)
@@ -73,6 +83,7 @@ func (a *API) routes() {
 	})
 
 	r.Route("/users", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {}) 
 		r.With(auth.AuthMiddleware(a.store)).Get("/", userH.ListUsers)
 		r.With(auth.AuthMiddleware(a.store)).Get("/me", userH.GetSelfProfile)
 		r.With(auth.AuthMiddleware(a.store)).Get("/{id}", userH.GetUser)
@@ -80,11 +91,13 @@ func (a *API) routes() {
 	})
 
 	r.Route("/admin", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		// r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Get("/dashboard", adminH.AdminDashboard)
 		r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Put("/user/{id}", adminH.UpdateUserStatus)
 	})
 
 	r.Route("/health", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Get("/", HealthHandler(a.store))
 	})
 }
