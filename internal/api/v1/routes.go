@@ -92,8 +92,15 @@ func (a *API) routes() {
 
 	r.Route("/admin", func(r chi.Router) {
 		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		adminGroup := r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin"))
 		// r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Get("/dashboard", adminH.AdminDashboard)
-		r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin")).Put("/user/{id}", adminH.UpdateUserStatus)
+		adminGroup.Put("/user/{id}", adminH.UpdateUserStatus)
+		adminGroup.Post("/user/{id}/approve", adminH.ApproveUser)
+		adminGroup.Get("/unapproved-users", adminH.GetUnapprovedUsers)
+		adminGroup.Get("/students", adminH.GetStudentsWithAssignments)
+		adminGroup.Get("/coaches", adminH.GetCoachesWithAssignments)
+		adminGroup.Post("/assign-student", adminH.AssignStudentToCoach)
+		adminGroup.Post("/assign-mentor", adminH.AssignCoachAsMentor)
 	})
 
 	r.Route("/health", func(r chi.Router) {
