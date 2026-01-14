@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/madhava-poojari/dashboard-api/internal/models"
+	"gorm.io/gorm"
 )
 
 func (s *Store) ApproveUser(ctx context.Context, userID string) error {
@@ -24,17 +25,196 @@ func (s *Store) RemoveCoachStudent(ctx context.Context, coachID, studentID strin
 	return s.DB.WithContext(ctx).Where("coach_id = ? AND student_id = ?", coachID, studentID).Delete(&models.CoachStudent{}).Error
 }
 
-// GetPendingApprovals fetches users where approved = false, ordered by created_at DESC
-func (s *Store) GetPendingApprovals(ctx context.Context) ([]*models.User, error) {
-	var users []*models.User
-	if err := s.DB.WithContext(ctx).
-		Preload("UserDetails").
-		Where("approved = ?", false).
-		Order("created_at DESC").
-		Find(&users).Error; err != nil {
+// ListUnapprovedUsers returns users that are not approved, sorted by newest first
+func (s *Store) ListUnapprovedUsers(ctx context.Context) ([]*models.User, error) {
+	var res []*models.User
+	if err := s.DB.WithContext(ctx).Preload("UserDetails").Where("approved = ?", false).Order("created_at desc").Find(&res).Error; err != nil {
 		return nil, err
 	}
-	return users, nil
+	return res, nil
+}
+
+// StudentWithAssignment represents a student with their coach/mentor assignment info
+type StudentWithAssignment struct {
+	*models.User
+	CoachID       *string    `json:"coach_id,omitempty"`
+	MentorCoachID *string    `json:"mentor_coach_id,omitempty"`
+	AssignedAt    *time.Time `json:"assigned_at,omitempty"`
+}
+
+// ListStudentsWithAssignments returns all students with their assignment info
+func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWithAssignment, error) {
+	var students []models.User
+	if err := s.DB.WithContext(ctx).Preload("UserDetails").Where("role = ?", "student").Find(&students).Error; err != nil {
+		return nil, err
+	}
+
+	var assignments []struct {
+		StudentID     string    `gorm:"column:student_id"`
+		CoachID       string    `gorm:"column:coach_id"`
+		MentorCoachID string    `gorm:"column:mentor_coach_id"`
+		CreatedAt     time.Time `gorm:"column:created_at"`
+	}
+	if err := s.DB.WithContext(ctx).Table("coach_students").Find(&assignments).Error; err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	// Create a map of student_id -> assignment
+	assignmentMap := make(map[string]struct {
+		CoachID       string
+		MentorCoachID string
+		CreatedAt     time.Time
+	})
+	for _, a := range assignments {
+		assignmentMap[a.StudentID] = struct {
+			CoachID       string
+			MentorCoachID string
+			CreatedAt     time.Time
+		}{
+			CoachID:       a.CoachID,
+			MentorCoachID: a.MentorCoachID,
+			CreatedAt:     a.CreatedAt,
+		}
+	}
+
+	result := make([]*StudentWithAssignment, 0, len(students))
+	unassigned := make([]*StudentWithAssignment, 0)
+	assigned := make([]*StudentWithAssignment, 0)
+
+	for i := range students {
+		swa := &StudentWithAssignment{User: &students[i]}
+		if a, ok := assignmentMap[students[i].ID]; ok {
+			swa.CoachID = &a.CoachID
+			if a.MentorCoachID != "" {
+				swa.MentorCoachID = &a.MentorCoachID
+			}
+			swa.AssignedAt = &a.CreatedAt
+			assigned = append(assigned, swa)
+		} else {
+			unassigned = append(unassigned, swa)
+		}
+	}
+
+	// Sort assigned by assigned_at desc (newest first)
+	for i := 0; i < len(assigned)-1; i++ {
+		for j := i + 1; j < len(assigned); j++ {
+			if assigned[i].AssignedAt != nil && assigned[j].AssignedAt != nil {
+				if assigned[i].AssignedAt.Before(*assigned[j].AssignedAt) {
+					assigned[i], assigned[j] = assigned[j], assigned[i]
+				}
+			}
+		}
+	}
+
+	// Unassigned first, then assigned (sorted by newest assignment)
+	result = append(result, unassigned...)
+	result = append(result, assigned...)
+
+	return result, nil
+}
+
+// CoachWithAssignment represents a coach with their student assignment info
+type CoachWithAssignment struct {
+	*models.User
+	StudentID  *string    `json:"student_id,omitempty"`
+	IsMentor   bool       `json:"is_mentor"`
+	AssignedAt *time.Time `json:"assigned_at,omitempty"`
+}
+
+// ListCoachesWithAssignments returns all coaches with their assignment info
+func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAssignment, error) {
+	var coaches []models.User
+	if err := s.DB.WithContext(ctx).Preload("UserDetails").Where("role IN ?", []string{"coach", "mentor"}).Find(&coaches).Error; err != nil {
+		return nil, err
+	}
+
+	var assignments []struct {
+		CoachID       string    `gorm:"column:coach_id"`
+		MentorCoachID string    `gorm:"column:mentor_coach_id"`
+		StudentID     string    `gorm:"column:student_id"`
+		CreatedAt     time.Time `gorm:"column:created_at"`
+	}
+	if err := s.DB.WithContext(ctx).Table("coach_students").Find(&assignments).Error; err != nil && err != gorm.ErrRecordNotFound {
+		return nil, err
+	}
+
+	// Create a map of coach_id -> assignments (can have multiple)
+	assignmentMap := make(map[string][]struct {
+		StudentID string
+		IsMentor  bool
+		CreatedAt time.Time
+	})
+	for _, a := range assignments {
+		// Add as coach assignment
+		if a.CoachID != "" {
+			assignmentMap[a.CoachID] = append(assignmentMap[a.CoachID], struct {
+				StudentID string
+				IsMentor  bool
+				CreatedAt time.Time
+			}{
+				StudentID: a.StudentID,
+				IsMentor:  false,
+				CreatedAt: a.CreatedAt,
+			})
+		}
+		// Add as mentor assignment
+		if a.MentorCoachID != "" {
+			assignmentMap[a.MentorCoachID] = append(assignmentMap[a.MentorCoachID], struct {
+				StudentID string
+				IsMentor  bool
+				CreatedAt time.Time
+			}{
+				StudentID: a.StudentID,
+				IsMentor:  true,
+				CreatedAt: a.CreatedAt,
+			})
+		}
+	}
+
+	result := make([]*CoachWithAssignment, 0)
+	unassigned := make([]*CoachWithAssignment, 0)
+	assigned := make([]*CoachWithAssignment, 0)
+
+	for i := range coaches {
+		assignments := assignmentMap[coaches[i].ID]
+		if len(assignments) == 0 {
+			cwa := &CoachWithAssignment{User: &coaches[i]}
+			unassigned = append(unassigned, cwa)
+		} else {
+			// Create one entry per assignment, sorted by newest first
+			for _, a := range assignments {
+				cwa := &CoachWithAssignment{
+					User:       &coaches[i],
+					StudentID:  &a.StudentID,
+					IsMentor:   a.IsMentor,
+					AssignedAt: &a.CreatedAt,
+				}
+				assigned = append(assigned, cwa)
+			}
+		}
+	}
+
+	// Sort assigned by assigned_at desc (newest first)
+	for i := 0; i < len(assigned)-1; i++ {
+		for j := i + 1; j < len(assigned); j++ {
+			if assigned[i].AssignedAt != nil && assigned[j].AssignedAt != nil {
+				if assigned[i].AssignedAt.Before(*assigned[j].AssignedAt) {
+					assigned[i], assigned[j] = assigned[j], assigned[i]
+				}
+			}
+		}
+	}
+
+	// Unassigned first, then assigned (sorted by newest assignment)
+	result = append(result, unassigned...)
+	result = append(result, assigned...)
+
+	return result, nil
+}
+
+// GetPendingApprovals is an alias for ListUnapprovedUsers (for backward compatibility)
+func (s *Store) GetPendingApprovals(ctx context.Context) ([]*models.User, error) {
+	return s.ListUnapprovedUsers(ctx)
 }
 
 // GetUsersByRole fetches users filtered by a specific role
@@ -63,127 +243,6 @@ func (s *Store) GetAllCoaches(ctx context.Context) ([]*models.User, error) {
 // GetAllMentorCoaches fetches users with role mentor
 func (s *Store) GetAllMentorCoaches(ctx context.Context) ([]*models.User, error) {
 	return s.GetUsersByRole(ctx, models.RoleMentor)
-}
-
-// StudentWithAssignment represents a student with their coach assignment info
-type StudentWithAssignment struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Role      string `json:"role"`
-	Approved  bool   `json:"approved"`
-	Active    bool   `json:"active"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	CoachID   *string `json:"coach_id"`
-	CoachName *string `json:"coach_name"`
-	MentorCoachID *string `json:"mentor_coach_id"`
-	MentorName    *string `json:"mentor_name"`
-}
-
-// GetStudentsWithAssignments fetches all students with their coach assignment info
-// Unassigned students come first, then assigned students sorted by user created_at
-func (s *Store) GetStudentsWithAssignments(ctx context.Context) ([]StudentWithAssignment, error) {
-	var results []StudentWithAssignment
-
-	err := s.DB.WithContext(ctx).
-		Table("users").
-		Select(`
-			users.id,
-			users.email,
-			users.first_name,
-			users.last_name,
-			users.role,
-			users.approved,
-			users.active,
-			users.created_at,
-			users.updated_at,
-			cs.coach_id,
-			coach.first_name || ' ' || coach.last_name as coach_name,
-			cs.mentor_coach_id,
-			mentor.first_name || ' ' || mentor.last_name as mentor_name
-		`).
-		Joins("LEFT JOIN coach_students cs ON cs.student_id = users.id").
-		Joins("LEFT JOIN users coach ON coach.id = cs.coach_id").
-		Joins("LEFT JOIN users mentor ON mentor.id = cs.mentor_coach_id").
-		Where("users.role = ?", models.RoleStudent).
-		Order("CASE WHEN cs.coach_id IS NULL THEN 0 ELSE 1 END, users.created_at DESC").
-		Scan(&results).Error
-
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
-// CoachWithAssignment represents a coach with their mentor assignment info
-type CoachWithAssignment struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Role      string `json:"role"`
-	Approved  bool   `json:"approved"`
-	Active    bool   `json:"active"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	MentorCoachID *string `json:"mentor_coach_id"`
-	MentorName    *string `json:"mentor_name"`
-	StudentCount  int     `json:"student_count"`
-}
-
-// GetCoachesWithAssignments fetches all coaches with their mentor assignment info
-// Unassigned coaches come first, then assigned coaches sorted by user created_at
-func (s *Store) GetCoachesWithAssignments(ctx context.Context) ([]CoachWithAssignment, error) {
-	var results []CoachWithAssignment
-
-	err := s.DB.WithContext(ctx).
-		Table("users").
-		Select(`
-			users.id,
-			users.email,
-			users.first_name,
-			users.last_name,
-			users.role,
-			users.approved,
-			users.active,
-			users.created_at,
-			users.updated_at,
-			(SELECT cs.mentor_coach_id FROM coach_students cs WHERE cs.coach_id = users.id LIMIT 1) as mentor_coach_id,
-			(SELECT m.first_name || ' ' || m.last_name FROM users m WHERE m.id = (SELECT cs2.mentor_coach_id FROM coach_students cs2 WHERE cs2.coach_id = users.id LIMIT 1)) as mentor_name,
-			(SELECT COUNT(*) FROM coach_students cs3 WHERE cs3.coach_id = users.id) as student_count
-		`).
-		Where("users.role = ?", models.RoleCoach).
-		Order("users.created_at DESC").
-		Scan(&results).Error
-
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
-// AssignStudentToCoach creates or updates the student-coach relationship
-func (s *Store) AssignStudentToCoach(ctx context.Context, studentID, coachID, mentorCoachID string) error {
-	// First, remove any existing assignment for this student
-	s.DB.WithContext(ctx).Where("student_id = ?", studentID).Delete(&models.CoachStudent{})
-
-	// Create new assignment
-	cs := models.CoachStudent{
-		CoachID:       coachID,
-		StudentID:     studentID,
-		MentorCoachID: mentorCoachID,
-	}
-	return s.DB.WithContext(ctx).Create(&cs).Error
-}
-
-// AssignCoachToMentor updates all students of a coach to have the specified mentor
-func (s *Store) AssignCoachToMentor(ctx context.Context, coachID, mentorCoachID string) error {
-	return s.DB.WithContext(ctx).
-		Model(&models.CoachStudent{}).
-		Where("coach_id = ?", coachID).
-		Update("mentor_coach_id", mentorCoachID).Error
 }
 
 // GetAllUsersGrouped returns all users grouped by role for admin view

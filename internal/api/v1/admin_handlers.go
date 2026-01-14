@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/madhava-poojari/dashboard-api/internal/models"
 	"github.com/madhava-poojari/dashboard-api/internal/utils"
 )
 
@@ -50,139 +51,166 @@ func (h *AdminHandler) UpdateUserStatus(w http.ResponseWriter, r *http.Request) 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "updated", nil, nil)
 }
 
-// GetPendingApprovals returns users where approved = false, sorted by created_at DESC
-func (h *AdminHandler) GetPendingApprovals(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.GetPendingApprovals(r.Context())
+// GetUnapprovedUsers returns list of unapproved users
+func (h *AdminHandler) GetUnapprovedUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.store.ListUnapprovedUsers(r.Context())
 	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch pending approvals", nil, err)
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching unapproved users", nil, err)
 		return
 	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "pending approvals fetched", users, nil)
+	utils.WriteJSONResponse(w, http.StatusOK, true, "success", users, nil)
 }
 
-// ApproveUser sets approved = true for the user
+// GetStudentsWithAssignments returns all students with their assignment info
+func (h *AdminHandler) GetStudentsWithAssignments(w http.ResponseWriter, r *http.Request) {
+	students, err := h.store.ListStudentsWithAssignments(r.Context())
+	if err != nil {
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching students", nil, err)
+		return
+	}
+	utils.WriteJSONResponse(w, http.StatusOK, true, "success", students, nil)
+}
+
+// GetCoachesWithAssignments returns all coaches with their assignment info
+func (h *AdminHandler) GetCoachesWithAssignments(w http.ResponseWriter, r *http.Request) {
+	coaches, err := h.store.ListCoachesWithAssignments(r.Context())
+	if err != nil {
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching coaches", nil, err)
+		return
+	}
+	utils.WriteJSONResponse(w, http.StatusOK, true, "success", coaches, nil)
+}
+
+// ApproveUser approves a user
 func (h *AdminHandler) ApproveUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
 	if userID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "user id is required", nil, nil)
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "missing user id", nil, nil)
 		return
 	}
 
 	err := h.store.ApproveUser(r.Context(), userID)
 	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to approve user", nil, err)
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error approving user", nil, err)
 		return
 	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "user approved successfully", nil, nil)
+	utils.WriteJSONResponse(w, http.StatusOK, true, "user approved", nil, nil)
 }
 
-// GetStudentsWithAssignments returns all students with their coach assignment info
-func (h *AdminHandler) GetStudentsWithAssignments(w http.ResponseWriter, r *http.Request) {
-	students, err := h.store.GetStudentsWithAssignments(r.Context())
+// AssignStudentToCoach assigns a student to a coach
+func (h *AdminHandler) AssignStudentToCoach(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		CoachID   string `json:"coach_id"`
+		StudentID string `json:"student_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request", nil, err)
+		return
+	}
+
+	if payload.CoachID == "" || payload.StudentID == "" {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "coach_id and student_id are required", nil, nil)
+		return
+	}
+
+	// Check if assignment already exists
+	var existing models.CoachStudent
+	if err := h.store.Store.DB.WithContext(r.Context()).Where("coach_id = ? AND student_id = ?", payload.CoachID, payload.StudentID).First(&existing).Error; err == nil {
+		utils.WriteJSONResponse(w, http.StatusConflict, false, "assignment already exists", nil, nil)
+		return
+	}
+
+	err := h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, "")
 	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch students", nil, err)
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning student", nil, err)
 		return
 	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "students fetched", students, nil)
+	utils.WriteJSONResponse(w, http.StatusOK, true, "student assigned to coach", nil, nil)
 }
 
-// GetCoachesWithAssignments returns all coaches with their mentor assignment info
-func (h *AdminHandler) GetCoachesWithAssignments(w http.ResponseWriter, r *http.Request) {
-	coaches, err := h.store.GetCoachesWithAssignments(r.Context())
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch coaches", nil, err)
+// AssignCoachAsMentor assigns a coach as a mentor to a student
+func (h *AdminHandler) AssignCoachAsMentor(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		MentorCoachID string `json:"mentor_coach_id"`
+		StudentID     string `json:"student_id"`
+		CoachID       string `json:"coach_id"` // Optional: The existing coach for this student
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request", nil, err)
 		return
 	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "coaches fetched", coaches, nil)
+
+	if payload.MentorCoachID == "" || payload.StudentID == "" {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "mentor_coach_id and student_id are required", nil, nil)
+		return
+	}
+
+	// Find existing coach-student relationship for this student
+	var existing models.CoachStudent
+	err := h.store.Store.DB.WithContext(r.Context()).
+		Where("student_id = ?", payload.StudentID).
+		First(&existing).Error
+
+	if err == nil {
+		// Update existing relationship to add/update mentor
+		// Use payload.CoachID if provided, otherwise use existing.CoachID
+		coachIDToUse := payload.CoachID
+		if coachIDToUse == "" {
+			coachIDToUse = existing.CoachID
+		}
+		updateData := map[string]interface{}{"mentor_coach_id": payload.MentorCoachID}
+		err = h.store.Store.DB.WithContext(r.Context()).Model(&models.CoachStudent{}).
+			Where("coach_id = ? AND student_id = ?", coachIDToUse, payload.StudentID).
+			Updates(updateData).Error
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
+			return
+		}
+	} else {
+		// No existing relationship - if coach_id is provided, create with that coach and mentor
+		// Otherwise, create new one with mentor as coach (since coach_id is required)
+		if payload.CoachID != "" {
+			err = h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, payload.MentorCoachID)
+		} else {
+			// In this case, the mentor coach will also be the coach
+			err = h.store.AddCoachStudent(r.Context(), payload.MentorCoachID, payload.StudentID, payload.MentorCoachID)
+		}
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
+			return
+		}
+	}
+
+	utils.WriteJSONResponse(w, http.StatusOK, true, "coach assigned as mentor", nil, nil)
 }
 
-// GetMentorCoaches returns all mentor coaches
+// GetMentorCoaches returns all mentor coaches (coaches with role "mentor")
 func (h *AdminHandler) GetMentorCoaches(w http.ResponseWriter, r *http.Request) {
-	mentors, err := h.store.GetAllMentorCoaches(r.Context())
+	coaches, err := h.store.ListCoachesWithAssignments(r.Context())
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch mentor coaches", nil, err)
 		return
+	}
+	// Filter to only mentor coaches
+	mentors := make([]interface{}, 0)
+	for _, coach := range coaches {
+		if coach.Role == "mentor" {
+			mentors = append(mentors, coach)
+		}
 	}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "mentor coaches fetched", mentors, nil)
 }
 
 // GetAllCoaches returns all coaches (for assignment dropdown)
 func (h *AdminHandler) GetAllCoaches(w http.ResponseWriter, r *http.Request) {
-	coaches, err := h.store.GetAllCoaches(r.Context())
+	coaches, err := h.store.ListCoachesWithAssignments(r.Context())
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch coaches", nil, err)
 		return
 	}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "coaches fetched", coaches, nil)
-}
-
-// AssignStudentToCoach assigns a student to a coach and optionally a mentor coach
-func (h *AdminHandler) AssignStudentToCoach(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		StudentID     string `json:"student_id"`
-		CoachID       string `json:"coach_id"`
-		MentorCoachID string `json:"mentor_coach_id,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request body", nil, err)
-		return
-	}
-
-	if payload.StudentID == "" || payload.CoachID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "student_id and coach_id are required", nil, nil)
-		return
-	}
-
-	err := h.store.AssignStudentToCoach(r.Context(), payload.StudentID, payload.CoachID, payload.MentorCoachID)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to assign student to coach", nil, err)
-		return
-	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "student assigned to coach successfully", nil, nil)
-}
-
-// AssignCoachToMentor assigns a coach to a mentor coach
-func (h *AdminHandler) AssignCoachToMentor(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		CoachID       string `json:"coach_id"`
-		MentorCoachID string `json:"mentor_coach_id"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request body", nil, err)
-		return
-	}
-
-	if payload.CoachID == "" || payload.MentorCoachID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "coach_id and mentor_coach_id are required", nil, nil)
-		return
-	}
-
-	err := h.store.AssignCoachToMentor(r.Context(), payload.CoachID, payload.MentorCoachID)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to assign coach to mentor", nil, err)
-		return
-	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "coach assigned to mentor successfully", nil, nil)
-}
-
-// ListAllUsers returns all users grouped by role
-func (h *AdminHandler) ListAllUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.GetAllUsersGrouped(r.Context())
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch users", nil, err)
-		return
-	}
-	utils.WriteJSONResponse(w, http.StatusOK, true, "users fetched", users, nil)
-}
-
-// AdminDashboardData represents the data structure for the admin dashboard
-type AdminDashboardData struct {
-	PendingApprovals interface{} `json:"pending_approvals,omitempty"`
-	Students         interface{} `json:"students"`
-	Coaches          interface{} `json:"coaches"`
-	MentorCoaches    interface{} `json:"mentor_coaches"`
 }
 
 // GetAdminDashboard returns all data needed for the admin dashboard in one call
@@ -190,31 +218,32 @@ func (h *AdminHandler) GetAdminDashboard(w http.ResponseWriter, r *http.Request)
 	ctx := r.Context()
 
 	// Get pending approvals
-	pendingUsers, err := h.store.GetPendingApprovals(ctx)
+	pendingUsers, err := h.store.ListUnapprovedUsers(ctx)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch pending approvals", nil, err)
 		return
 	}
 
 	// Get students with assignments
-	students, err := h.store.GetStudentsWithAssignments(ctx)
+	students, err := h.store.ListStudentsWithAssignments(ctx)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch students", nil, err)
 		return
 	}
 
 	// Get coaches with assignments
-	coaches, err := h.store.GetCoachesWithAssignments(ctx)
+	coaches, err := h.store.ListCoachesWithAssignments(ctx)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch coaches", nil, err)
 		return
 	}
 
-	// Get mentor coaches
-	mentors, err := h.store.GetAllMentorCoaches(ctx)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch mentor coaches", nil, err)
-		return
+	// Filter mentor coaches
+	mentors := make([]interface{}, 0)
+	for _, coach := range coaches {
+		if coach.Role == "mentor" {
+			mentors = append(mentors, coach)
+		}
 	}
 
 	data := map[string]interface{}{

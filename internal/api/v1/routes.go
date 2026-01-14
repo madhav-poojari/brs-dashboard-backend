@@ -93,35 +93,30 @@ func (a *API) routes() {
 
 	r.Route("/admin", func(r chi.Router) {
 		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		adminGroup := r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin"))
 
-		// All admin routes require authentication and admin role
-		r.Group(func(r chi.Router) {
-			r.Use(auth.AuthMiddleware(a.store))
-			r.Use(auth.RoleMiddleware("admin"))
+		// Dashboard - get all data in one call
+		adminGroup.Get("/dashboard", adminH.GetAdminDashboard)
 
-			// Dashboard data - get all data in one call
-			r.Get("/dashboard", adminH.GetAdminDashboard)
+		// User management
+		adminGroup.Put("/user/{id}", adminH.UpdateUserStatus)
+		adminGroup.Post("/user/{id}/approve", adminH.ApproveUser)
 
-			// Pending approvals
-			r.Get("/pending-approvals", adminH.GetPendingApprovals)
-			r.Post("/users/{id}/approve", adminH.ApproveUser)
+		// Pending approvals
+		adminGroup.Get("/unapproved-users", adminH.GetUnapprovedUsers)
 
-			// User management
-			r.Put("/user/{id}", adminH.UpdateUserStatus)
-			r.Get("/users", adminH.ListAllUsers)
+		// Students
+		adminGroup.Get("/students", adminH.GetStudentsWithAssignments)
+		adminGroup.Post("/assign-student", adminH.AssignStudentToCoach)
+		adminGroup.Post("/students/assign", adminH.AssignStudentToCoach) // Alternative route
 
-			// Students
-			r.Get("/students", adminH.GetStudentsWithAssignments)
-			r.Post("/students/assign", adminH.AssignStudentToCoach)
+		// Coaches
+		adminGroup.Get("/coaches", adminH.GetCoachesWithAssignments)
+		adminGroup.Get("/coaches/all", adminH.GetAllCoaches)
+		adminGroup.Post("/assign-mentor", adminH.AssignCoachAsMentor)
 
-			// Coaches
-			r.Get("/coaches", adminH.GetCoachesWithAssignments)
-			r.Get("/coaches/all", adminH.GetAllCoaches)
-			r.Post("/coaches/assign", adminH.AssignCoachToMentor)
-
-			// Mentor coaches
-			r.Get("/mentors", adminH.GetMentorCoaches)
-		})
+		// Mentor coaches
+		adminGroup.Get("/mentors", adminH.GetMentorCoaches)
 	})
 
 	r.Route("/health", func(r chi.Router) {
