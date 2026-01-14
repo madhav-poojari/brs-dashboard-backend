@@ -17,7 +17,8 @@ func (s *Store) ChangeUserRole(ctx context.Context, userID, role string) error {
 }
 
 func (s *Store) AddCoachStudent(ctx context.Context, coachID, studentID, mentorID string) error {
-	cs := models.CoachStudent{CoachID: coachID, StudentID: studentID, MentorCoachID: mentorID}
+	// mentorID parameter kept for API compatibility but not stored
+	cs := models.CoachStudent{CoachID: coachID, StudentID: studentID}
 	return s.DB.WithContext(ctx).Create(&cs).Error
 }
 
@@ -34,12 +35,11 @@ func (s *Store) ListUnapprovedUsers(ctx context.Context) ([]*models.User, error)
 	return res, nil
 }
 
-// StudentWithAssignment represents a student with their coach/mentor assignment info
+// StudentWithAssignment represents a student with their coach assignment info
 type StudentWithAssignment struct {
 	*models.User
-	CoachID       *string    `json:"coach_id,omitempty"`
-	MentorCoachID *string    `json:"mentor_coach_id,omitempty"`
-	AssignedAt    *time.Time `json:"assigned_at,omitempty"`
+	CoachID    *string    `json:"coach_id,omitempty"`
+	AssignedAt *time.Time `json:"assigned_at,omitempty"`
 }
 
 // ListStudentsWithAssignments returns all students with their assignment info
@@ -50,10 +50,9 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 	}
 
 	var assignments []struct {
-		StudentID     string    `gorm:"column:student_id"`
-		CoachID       string    `gorm:"column:coach_id"`
-		MentorCoachID string    `gorm:"column:mentor_coach_id"`
-		CreatedAt     time.Time `gorm:"column:created_at"`
+		StudentID string    `gorm:"column:student_id"`
+		CoachID   string    `gorm:"column:coach_id"`
+		CreatedAt time.Time `gorm:"column:created_at"`
 	}
 	if err := s.DB.WithContext(ctx).Table("coach_students").Find(&assignments).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
@@ -61,19 +60,16 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 
 	// Create a map of student_id -> assignment
 	assignmentMap := make(map[string]struct {
-		CoachID       string
-		MentorCoachID string
-		CreatedAt     time.Time
+		CoachID   string
+		CreatedAt time.Time
 	})
 	for _, a := range assignments {
 		assignmentMap[a.StudentID] = struct {
-			CoachID       string
-			MentorCoachID string
-			CreatedAt     time.Time
+			CoachID   string
+			CreatedAt time.Time
 		}{
-			CoachID:       a.CoachID,
-			MentorCoachID: a.MentorCoachID,
-			CreatedAt:     a.CreatedAt,
+			CoachID:   a.CoachID,
+			CreatedAt: a.CreatedAt,
 		}
 	}
 
@@ -85,9 +81,6 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 		swa := &StudentWithAssignment{User: &students[i]}
 		if a, ok := assignmentMap[students[i].ID]; ok {
 			swa.CoachID = &a.CoachID
-			if a.MentorCoachID != "" {
-				swa.MentorCoachID = &a.MentorCoachID
-			}
 			swa.AssignedAt = &a.CreatedAt
 			assigned = append(assigned, swa)
 		} else {
@@ -117,7 +110,6 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 type CoachWithAssignment struct {
 	*models.User
 	StudentID  *string    `json:"student_id,omitempty"`
-	IsMentor   bool       `json:"is_mentor"`
 	AssignedAt *time.Time `json:"assigned_at,omitempty"`
 }
 
@@ -129,10 +121,9 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 	}
 
 	var assignments []struct {
-		CoachID       string    `gorm:"column:coach_id"`
-		MentorCoachID string    `gorm:"column:mentor_coach_id"`
-		StudentID     string    `gorm:"column:student_id"`
-		CreatedAt     time.Time `gorm:"column:created_at"`
+		CoachID   string    `gorm:"column:coach_id"`
+		StudentID string    `gorm:"column:student_id"`
+		CreatedAt time.Time `gorm:"column:created_at"`
 	}
 	if err := s.DB.WithContext(ctx).Table("coach_students").Find(&assignments).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
@@ -141,7 +132,6 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 	// Create a map of coach_id -> assignments (can have multiple)
 	assignmentMap := make(map[string][]struct {
 		StudentID string
-		IsMentor  bool
 		CreatedAt time.Time
 	})
 	for _, a := range assignments {
@@ -149,23 +139,9 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 		if a.CoachID != "" {
 			assignmentMap[a.CoachID] = append(assignmentMap[a.CoachID], struct {
 				StudentID string
-				IsMentor  bool
 				CreatedAt time.Time
 			}{
 				StudentID: a.StudentID,
-				IsMentor:  false,
-				CreatedAt: a.CreatedAt,
-			})
-		}
-		// Add as mentor assignment
-		if a.MentorCoachID != "" {
-			assignmentMap[a.MentorCoachID] = append(assignmentMap[a.MentorCoachID], struct {
-				StudentID string
-				IsMentor  bool
-				CreatedAt time.Time
-			}{
-				StudentID: a.StudentID,
-				IsMentor:  true,
 				CreatedAt: a.CreatedAt,
 			})
 		}
@@ -186,7 +162,6 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 				cwa := &CoachWithAssignment{
 					User:       &coaches[i],
 					StudentID:  &a.StudentID,
-					IsMentor:   a.IsMentor,
 					AssignedAt: &a.CreatedAt,
 				}
 				assigned = append(assigned, cwa)

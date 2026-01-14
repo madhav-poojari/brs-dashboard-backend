@@ -129,61 +129,9 @@ func (h *AdminHandler) AssignStudentToCoach(w http.ResponseWriter, r *http.Reque
 	utils.WriteJSONResponse(w, http.StatusOK, true, "student assigned to coach", nil, nil)
 }
 
-// AssignCoachAsMentor assigns a coach as a mentor to a student
+// AssignCoachAsMentor - DISABLED: Mentor functionality not implemented yet
 func (h *AdminHandler) AssignCoachAsMentor(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		MentorCoachID string `json:"mentor_coach_id"`
-		StudentID     string `json:"student_id"`
-		CoachID       string `json:"coach_id"` // Optional: The existing coach for this student
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request", nil, err)
-		return
-	}
-
-	if payload.MentorCoachID == "" || payload.StudentID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "mentor_coach_id and student_id are required", nil, nil)
-		return
-	}
-
-	// Find existing coach-student relationship for this student
-	var existing models.CoachStudent
-	err := h.store.Store.DB.WithContext(r.Context()).
-		Where("student_id = ?", payload.StudentID).
-		First(&existing).Error
-
-	if err == nil {
-		// Update existing relationship to add/update mentor
-		// Use payload.CoachID if provided, otherwise use existing.CoachID
-		coachIDToUse := payload.CoachID
-		if coachIDToUse == "" {
-			coachIDToUse = existing.CoachID
-		}
-		updateData := map[string]interface{}{"mentor_coach_id": payload.MentorCoachID}
-		err = h.store.Store.DB.WithContext(r.Context()).Model(&models.CoachStudent{}).
-			Where("coach_id = ? AND student_id = ?", coachIDToUse, payload.StudentID).
-			Updates(updateData).Error
-		if err != nil {
-			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
-			return
-		}
-	} else {
-		// No existing relationship - if coach_id is provided, create with that coach and mentor
-		// Otherwise, create new one with mentor as coach (since coach_id is required)
-		if payload.CoachID != "" {
-			err = h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, payload.MentorCoachID)
-		} else {
-			// In this case, the mentor coach will also be the coach
-			err = h.store.AddCoachStudent(r.Context(), payload.MentorCoachID, payload.StudentID, payload.MentorCoachID)
-		}
-		if err != nil {
-			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
-			return
-		}
-	}
-
-	utils.WriteJSONResponse(w, http.StatusOK, true, "coach assigned as mentor", nil, nil)
+	utils.WriteJSONResponse(w, http.StatusNotImplemented, false, "mentor assignment not implemented yet", nil, nil)
 }
 
 // GetMentorCoaches returns all mentor coaches (coaches with role "mentor")
@@ -238,19 +186,10 @@ func (h *AdminHandler) GetAdminDashboard(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Filter mentor coaches
-	mentors := make([]interface{}, 0)
-	for _, coach := range coaches {
-		if coach.Role == "mentor" {
-			mentors = append(mentors, coach)
-		}
-	}
-
 	data := map[string]interface{}{
 		"pending_approvals": pendingUsers,
 		"students":          students,
 		"coaches":           coaches,
-		"mentor_coaches":    mentors,
 	}
 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "admin dashboard data fetched", data, nil)

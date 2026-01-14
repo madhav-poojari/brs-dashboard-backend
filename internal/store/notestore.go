@@ -41,11 +41,8 @@ func (s *Store) IsCoachOf(ctx context.Context, coachID, studentID string) (bool,
 	return cnt > 0, err
 }
 func (s *Store) IsMentorOf(ctx context.Context, mentorID, studentID string) (bool, error) {
-	var cnt int64
-	err := s.DB.WithContext(ctx).Table("coach_students").
-		Where("mentor_coach_id = ? AND student_id = ?", mentorID, studentID).
-		Count(&cnt).Error
-	return cnt > 0, err
+	// Mentor functionality removed for now - always return false
+	return false, nil
 }
 func (s *Store) IsRelatedStudent(ctx context.Context, requesterID string, studentID string) (bool, error) {
 	// admin quick-check

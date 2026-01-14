@@ -50,9 +50,9 @@ type RefreshToken struct {
 }
 
 type CoachStudent struct {
-	CoachID       string `gorm:"size:10;primaryKey"`
-	StudentID     string `gorm:"size:10;primaryKey"`
-	MentorCoachID string `gorm:"size:10;index"` // added column
+	CoachID   string `gorm:"size:10;primaryKey"`
+	StudentID string `gorm:"size:10;primaryKey"`
+	// MentorCoachID removed - not needed for now
 }
 
 type LessonPlan struct {
