@@ -89,7 +89,7 @@ func (s *Store) GetCoachesByStudentID(ctx context.Context, studentID string) (st
 	}
 
 	if err := s.DB.WithContext(ctx).
-		Table("coach_student").
+		Table("coach_students").
 		Select("coach_id, mentor_coach_id").
 		Where("student_id = ?", studentID).
 		First(&result).Error; err != nil {
