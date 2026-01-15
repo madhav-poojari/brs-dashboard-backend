@@ -121,20 +121,45 @@ func (h *AdminHandler) AssignStudentToCoach(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	err := h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, "")
+	// Check if this coach has a default mentor assigned (check any existing student assignments)
+	var defaultMentor string
+	var mentorCheck models.CoachStudent
+	if err := h.store.Store.DB.WithContext(r.Context()).
+		Where("coach_id = ? AND mentor_coach_id != '' AND mentor_coach_id IS NOT NULL", payload.CoachID).
+		First(&mentorCheck).Error; err == nil {
+		defaultMentor = mentorCheck.MentorCoachID
+	}
+
+	err := h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, defaultMentor)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning student", nil, err)
 		return
 	}
+
+	// Clean up any tracking entries for this coach (they're no longer needed once we have real students)
+	// Format: "T-" + last 8 chars of coach_id
+	coachIDLen := len(payload.CoachID)
+	var trackingStudentID string
+	if coachIDLen <= 8 {
+		trackingStudentID = "T-" + payload.CoachID
+	} else {
+		trackingStudentID = "T-" + payload.CoachID[coachIDLen-8:]
+	}
+	h.store.Store.DB.WithContext(r.Context()).
+		Where("coach_id = ? AND student_id = ?", payload.CoachID, trackingStudentID).
+		Delete(&models.CoachStudent{})
+
 	utils.WriteJSONResponse(w, http.StatusOK, true, "student assigned to coach", nil, nil)
 }
 
-// AssignCoachAsMentor assigns a coach as a mentor to a student
+// AssignCoachAsMentor assigns a mentor coach to a coach
+// If student_id is provided, assigns mentor to that specific student-coach relationship
+// If student_id is empty but coach_id is provided, assigns mentor to all existing and future students of that coach
 func (h *AdminHandler) AssignCoachAsMentor(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		MentorCoachID string `json:"mentor_coach_id"`
-		StudentID     string `json:"student_id"`
-		CoachID       string `json:"coach_id"` // Optional: The existing coach for this student
+		StudentID     string `json:"student_id"` // Optional: if empty, applies to all students of the coach
+		CoachID       string `json:"coach_id"`   // Required: the coach to assign mentor to
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -142,45 +167,103 @@ func (h *AdminHandler) AssignCoachAsMentor(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if payload.MentorCoachID == "" || payload.StudentID == "" {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "mentor_coach_id and student_id are required", nil, nil)
+	if payload.MentorCoachID == "" {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "mentor_coach_id is required", nil, nil)
 		return
 	}
 
-	// Find existing coach-student relationship for this student
-	var existing models.CoachStudent
-	err := h.store.Store.DB.WithContext(r.Context()).
-		Where("student_id = ?", payload.StudentID).
-		First(&existing).Error
+	if payload.CoachID == "" && payload.StudentID == "" {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "either coach_id or student_id is required", nil, nil)
+		return
+	}
 
-	if err == nil {
-		// Update existing relationship to add/update mentor
-		// Use payload.CoachID if provided, otherwise use existing.CoachID
-		coachIDToUse := payload.CoachID
-		if coachIDToUse == "" {
-			coachIDToUse = existing.CoachID
-		}
-		updateData := map[string]interface{}{"mentor_coach_id": payload.MentorCoachID}
-		err = h.store.Store.DB.WithContext(r.Context()).Model(&models.CoachStudent{}).
-			Where("coach_id = ? AND student_id = ?", coachIDToUse, payload.StudentID).
-			Updates(updateData).Error
-		if err != nil {
-			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
-			return
+	// If student_id is provided, handle specific student-coach relationship
+	if payload.StudentID != "" {
+		// Find existing coach-student relationship for this student
+		var existing models.CoachStudent
+		err := h.store.Store.DB.WithContext(r.Context()).
+			Where("student_id = ?", payload.StudentID).
+			First(&existing).Error
+
+		if err == nil {
+			// Update existing relationship to add/update mentor
+			// Use payload.CoachID if provided, otherwise use existing.CoachID
+			coachIDToUse := payload.CoachID
+			if coachIDToUse == "" {
+				coachIDToUse = existing.CoachID
+			}
+			updateData := map[string]interface{}{"mentor_coach_id": payload.MentorCoachID}
+			err = h.store.Store.DB.WithContext(r.Context()).Model(&models.CoachStudent{}).
+				Where("coach_id = ? AND student_id = ?", coachIDToUse, payload.StudentID).
+				Updates(updateData).Error
+			if err != nil {
+				utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
+				return
+			}
+		} else {
+			// No existing relationship - if coach_id is provided, create with that coach and mentor
+			if payload.CoachID != "" {
+				err = h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, payload.MentorCoachID)
+			} else {
+				utils.WriteJSONResponse(w, http.StatusBadRequest, false, "coach_id is required when creating new student-coach relationship", nil, nil)
+				return
+			}
+			if err != nil {
+				utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
+				return
+			}
 		}
 	} else {
-		// No existing relationship - if coach_id is provided, create with that coach and mentor
-		// Otherwise, create new one with mentor as coach (since coach_id is required)
-		if payload.CoachID != "" {
-			err = h.store.AddCoachStudent(r.Context(), payload.CoachID, payload.StudentID, payload.MentorCoachID)
-		} else {
-			// In this case, the mentor coach will also be the coach
-			err = h.store.AddCoachStudent(r.Context(), payload.MentorCoachID, payload.StudentID, payload.MentorCoachID)
-		}
-		if err != nil {
-			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor", nil, err)
+		// No student_id provided - assign mentor to all existing students of this coach
+		// Update all existing coach_students entries for this coach
+		updateData := map[string]interface{}{"mentor_coach_id": payload.MentorCoachID}
+		result := h.store.Store.DB.WithContext(r.Context()).Model(&models.CoachStudent{}).
+			Where("coach_id = ?", payload.CoachID).
+			Updates(updateData)
+		if result.Error != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error assigning mentor to coach", nil, result.Error)
 			return
 		}
+
+		// If coach has no existing students, create a tracking entry to store the mentor assignment
+		// We'll use a special student_id format to track this (e.g., "T-{coach_id_last_8_chars}")
+		// This allows us to query for coaches with mentors even when they have no students
+		// Note: student_id is limited to 10 chars, so we use "T-" prefix (2 chars) + last 8 chars of coach_id
+		if result.RowsAffected == 0 {
+			// Create a tracking entry - this will be replaced when real students are assigned
+			// We use a special format for student_id that we can identify later
+			// Format: "T-" + last 8 chars of coach_id (total max 10 chars)
+			coachIDLen := len(payload.CoachID)
+			var trackingStudentID string
+			if coachIDLen <= 8 {
+				trackingStudentID = "T-" + payload.CoachID
+			} else {
+				trackingStudentID = "T-" + payload.CoachID[coachIDLen-8:]
+			}
+			// Check if tracking entry already exists
+			var existingTracking models.CoachStudent
+			if err := h.store.Store.DB.WithContext(r.Context()).
+				Where("coach_id = ? AND student_id = ?", payload.CoachID, trackingStudentID).
+				First(&existingTracking).Error; err != nil {
+				// Create new tracking entry
+				err = h.store.AddCoachStudent(r.Context(), payload.CoachID, trackingStudentID, payload.MentorCoachID)
+				if err != nil {
+					utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error creating mentor tracking entry", nil, err)
+					return
+				}
+			} else {
+				// Update existing tracking entry
+				err = h.store.Store.DB.WithContext(r.Context()).Model(&models.CoachStudent{}).
+					Where("coach_id = ? AND student_id = ?", payload.CoachID, trackingStudentID).
+					Updates(updateData).Error
+				if err != nil {
+					utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error updating mentor tracking entry", nil, err)
+					return
+				}
+			}
+		}
+		// Note: Future student assignments will automatically get this mentor
+		// This is handled in AssignStudentToCoach handler
 	}
 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "coach assigned as mentor", nil, nil)

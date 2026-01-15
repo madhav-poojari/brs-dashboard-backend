@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/madhava-poojari/dashboard-api/internal/models"
@@ -116,9 +117,10 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 // CoachWithAssignment represents a coach with their student assignment info
 type CoachWithAssignment struct {
 	*models.User
-	StudentID  *string    `json:"student_id,omitempty"`
-	IsMentor   bool       `json:"is_mentor"`
-	AssignedAt *time.Time `json:"assigned_at,omitempty"`
+	StudentID     *string    `json:"student_id,omitempty"`
+	IsMentor      bool       `json:"is_mentor"`
+	MentorCoachID *string    `json:"mentor_coach_id,omitempty"` // Mentor assigned to this coach
+	AssignedAt    *time.Time `json:"assigned_at,omitempty"`
 }
 
 // ListCoachesWithAssignments returns all coaches with their assignment info
@@ -140,33 +142,45 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 
 	// Create a map of coach_id -> assignments (can have multiple)
 	assignmentMap := make(map[string][]struct {
-		StudentID string
-		IsMentor  bool
-		CreatedAt time.Time
+		StudentID     string
+		IsMentor      bool
+		MentorCoachID string
+		CreatedAt     time.Time
 	})
+	// Track default mentors for coaches (coaches with mentor but no students shown yet)
+	coachMentorMap := make(map[string]string)
+
 	for _, a := range assignments {
 		// Add as coach assignment
 		if a.CoachID != "" {
 			assignmentMap[a.CoachID] = append(assignmentMap[a.CoachID], struct {
-				StudentID string
-				IsMentor  bool
-				CreatedAt time.Time
+				StudentID     string
+				IsMentor      bool
+				MentorCoachID string
+				CreatedAt     time.Time
 			}{
-				StudentID: a.StudentID,
-				IsMentor:  false,
-				CreatedAt: a.CreatedAt,
+				StudentID:     a.StudentID,
+				IsMentor:      false,
+				MentorCoachID: a.MentorCoachID,
+				CreatedAt:     a.CreatedAt,
 			})
+			// Track mentor for this coach (use the most recent one if multiple)
+			if a.MentorCoachID != "" {
+				coachMentorMap[a.CoachID] = a.MentorCoachID
+			}
 		}
 		// Add as mentor assignment
 		if a.MentorCoachID != "" {
 			assignmentMap[a.MentorCoachID] = append(assignmentMap[a.MentorCoachID], struct {
-				StudentID string
-				IsMentor  bool
-				CreatedAt time.Time
+				StudentID     string
+				IsMentor      bool
+				MentorCoachID string
+				CreatedAt     time.Time
 			}{
-				StudentID: a.StudentID,
-				IsMentor:  true,
-				CreatedAt: a.CreatedAt,
+				StudentID:     a.StudentID,
+				IsMentor:      true,
+				MentorCoachID: "",
+				CreatedAt:     a.CreatedAt,
 			})
 		}
 	}
@@ -177,17 +191,48 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 
 	for i := range coaches {
 		assignments := assignmentMap[coaches[i].ID]
-		if len(assignments) == 0 {
+		// Check if this coach has a default mentor (even without students)
+		defaultMentor := coachMentorMap[coaches[i].ID]
+
+		// Filter out tracking entries (they're just for storing mentor info, not real assignments)
+		realAssignments := make([]struct {
+			StudentID     string
+			IsMentor      bool
+			MentorCoachID string
+			CreatedAt     time.Time
+		}, 0)
+		for _, a := range assignments {
+			// Skip tracking entries (student_id starts with "T-")
+			if !strings.HasPrefix(a.StudentID, "T-") {
+				realAssignments = append(realAssignments, a)
+			}
+		}
+
+		if len(realAssignments) == 0 {
+			// Coach has no real student assignments, but might have a mentor
 			cwa := &CoachWithAssignment{User: &coaches[i]}
+			if defaultMentor != "" {
+				cwa.MentorCoachID = &defaultMentor
+			}
 			unassigned = append(unassigned, cwa)
 		} else {
 			// Create one entry per assignment, sorted by newest first
-			for _, a := range assignments {
+			for _, a := range realAssignments {
 				cwa := &CoachWithAssignment{
 					User:       &coaches[i],
 					StudentID:  &a.StudentID,
 					IsMentor:   a.IsMentor,
 					AssignedAt: &a.CreatedAt,
+				}
+				// Include mentor info if this is a coach assignment (not mentor assignment)
+				if !a.IsMentor {
+					// Use mentor from this specific assignment, or fall back to default mentor
+					if a.MentorCoachID != "" {
+						cwa.MentorCoachID = &a.MentorCoachID
+					} else if defaultMentor != "" {
+						// Coach has a default mentor (from tracking entry or other assignments)
+						cwa.MentorCoachID = &defaultMentor
+					}
 				}
 				assigned = append(assigned, cwa)
 			}
