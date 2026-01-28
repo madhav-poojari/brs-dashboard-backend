@@ -18,12 +18,12 @@ func (s *Store) ChangeUserRole(ctx context.Context, userID, role string) error {
 }
 
 func (s *Store) AddCoachStudent(ctx context.Context, coachID, studentID, mentorID string) error {
-	cs := models.CoachStudent{CoachID: coachID, StudentID: studentID, MentorCoachID: mentorID}
-	return s.DB.WithContext(ctx).Create(&cs).Error
+	r := models.Relation{CoachID: coachID, UserID: studentID, MentorID: mentorID}
+	return s.DB.WithContext(ctx).Create(&r).Error
 }
 
 func (s *Store) RemoveCoachStudent(ctx context.Context, coachID, studentID string) error {
-	return s.DB.WithContext(ctx).Where("coach_id = ? AND student_id = ?", coachID, studentID).Delete(&models.CoachStudent{}).Error
+	return s.DB.WithContext(ctx).Where("coach_id = ? AND user_id = ?", coachID, studentID).Delete(&models.Relation{}).Error
 }
 
 // ListUnapprovedUsers returns users that are not approved, sorted by newest first
@@ -50,31 +50,21 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 		return nil, err
 	}
 
-	var assignments []struct {
-		StudentID     string    `gorm:"column:student_id"`
-		CoachID       string    `gorm:"column:coach_id"`
-		MentorCoachID string    `gorm:"column:mentor_coach_id"`
-		CreatedAt     time.Time `gorm:"column:created_at"`
-	}
-	if err := s.DB.WithContext(ctx).Table("coach_students").Find(&assignments).Error; err != nil && err != gorm.ErrRecordNotFound {
+	var relations []models.Relation
+	if err := s.DB.WithContext(ctx).Find(&relations).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
-
-	// Create a map of student_id -> assignment
+	// user_id = student; only real assignments (skip tracking rows "T-...")
 	assignmentMap := make(map[string]struct {
 		CoachID       string
 		MentorCoachID string
-		CreatedAt     time.Time
 	})
-	for _, a := range assignments {
-		assignmentMap[a.StudentID] = struct {
-			CoachID       string
-			MentorCoachID string
-			CreatedAt     time.Time
-		}{
-			CoachID:       a.CoachID,
-			MentorCoachID: a.MentorCoachID,
-			CreatedAt:     a.CreatedAt,
+	for _, r := range relations {
+		if r.CoachID != "" && !strings.HasPrefix(r.UserID, "T-") {
+			assignmentMap[r.UserID] = struct {
+				CoachID       string
+				MentorCoachID string
+			}{CoachID: r.CoachID, MentorCoachID: r.MentorID}
 		}
 	}
 
@@ -89,25 +79,13 @@ func (s *Store) ListStudentsWithAssignments(ctx context.Context) ([]*StudentWith
 			if a.MentorCoachID != "" {
 				swa.MentorCoachID = &a.MentorCoachID
 			}
-			swa.AssignedAt = &a.CreatedAt
 			assigned = append(assigned, swa)
 		} else {
 			unassigned = append(unassigned, swa)
 		}
 	}
 
-	// Sort assigned by assigned_at desc (newest first)
-	for i := 0; i < len(assigned)-1; i++ {
-		for j := i + 1; j < len(assigned); j++ {
-			if assigned[i].AssignedAt != nil && assigned[j].AssignedAt != nil {
-				if assigned[i].AssignedAt.Before(*assigned[j].AssignedAt) {
-					assigned[i], assigned[j] = assigned[j], assigned[i]
-				}
-			}
-		}
-	}
-
-	// Unassigned first, then assigned (sorted by newest assignment)
+	// Unassigned first, then assigned
 	result = append(result, unassigned...)
 	result = append(result, assigned...)
 
@@ -130,58 +108,35 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 		return nil, err
 	}
 
-	var assignments []struct {
-		CoachID       string    `gorm:"column:coach_id"`
-		MentorCoachID string    `gorm:"column:mentor_coach_id"`
-		StudentID     string    `gorm:"column:student_id"`
-		CreatedAt     time.Time `gorm:"column:created_at"`
-	}
-	if err := s.DB.WithContext(ctx).Table("coach_students").Find(&assignments).Error; err != nil && err != gorm.ErrRecordNotFound {
+	var relations []models.Relation
+	if err := s.DB.WithContext(ctx).Find(&relations).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
 
-	// Create a map of coach_id -> assignments (can have multiple)
 	assignmentMap := make(map[string][]struct {
 		StudentID     string
 		IsMentor      bool
 		MentorCoachID string
-		CreatedAt     time.Time
 	})
-	// Track default mentors for coaches (coaches with mentor but no students shown yet)
 	coachMentorMap := make(map[string]string)
 
-	for _, a := range assignments {
-		// Add as coach assignment
-		if a.CoachID != "" {
-			assignmentMap[a.CoachID] = append(assignmentMap[a.CoachID], struct {
+	for _, r := range relations {
+		if r.CoachID != "" {
+			assignmentMap[r.CoachID] = append(assignmentMap[r.CoachID], struct {
 				StudentID     string
 				IsMentor      bool
 				MentorCoachID string
-				CreatedAt     time.Time
-			}{
-				StudentID:     a.StudentID,
-				IsMentor:      false,
-				MentorCoachID: a.MentorCoachID,
-				CreatedAt:     a.CreatedAt,
-			})
-			// Track mentor for this coach (use the most recent one if multiple)
-			if a.MentorCoachID != "" {
-				coachMentorMap[a.CoachID] = a.MentorCoachID
+			}{StudentID: r.UserID, IsMentor: false, MentorCoachID: r.MentorID})
+			if r.MentorID != "" {
+				coachMentorMap[r.CoachID] = r.MentorID
 			}
 		}
-		// Add as mentor assignment
-		if a.MentorCoachID != "" {
-			assignmentMap[a.MentorCoachID] = append(assignmentMap[a.MentorCoachID], struct {
+		if r.MentorID != "" {
+			assignmentMap[r.MentorID] = append(assignmentMap[r.MentorID], struct {
 				StudentID     string
 				IsMentor      bool
 				MentorCoachID string
-				CreatedAt     time.Time
-			}{
-				StudentID:     a.StudentID,
-				IsMentor:      true,
-				MentorCoachID: "",
-				CreatedAt:     a.CreatedAt,
-			})
+			}{StudentID: r.UserID, IsMentor: true, MentorCoachID: ""})
 		}
 	}
 
@@ -190,67 +145,43 @@ func (s *Store) ListCoachesWithAssignments(ctx context.Context) ([]*CoachWithAss
 	assigned := make([]*CoachWithAssignment, 0)
 
 	for i := range coaches {
-		assignments := assignmentMap[coaches[i].ID]
-		// Check if this coach has a default mentor (even without students)
-		defaultMentor := coachMentorMap[coaches[i].ID]
-
-		// Filter out tracking entries (they're just for storing mentor info, not real assignments)
-		realAssignments := make([]struct {
+		var real []struct {
 			StudentID     string
 			IsMentor      bool
 			MentorCoachID string
-			CreatedAt     time.Time
-		}, 0)
-		for _, a := range assignments {
-			// Skip tracking entries (student_id starts with "T-")
+		}
+		for _, a := range assignmentMap[coaches[i].ID] {
 			if !strings.HasPrefix(a.StudentID, "T-") {
-				realAssignments = append(realAssignments, a)
+				real = append(real, a)
 			}
 		}
+		defaultMentor := coachMentorMap[coaches[i].ID]
 
-		if len(realAssignments) == 0 {
-			// Coach has no real student assignments, but might have a mentor
+		if len(real) == 0 {
 			cwa := &CoachWithAssignment{User: &coaches[i]}
 			if defaultMentor != "" {
 				cwa.MentorCoachID = &defaultMentor
 			}
 			unassigned = append(unassigned, cwa)
 		} else {
-			// Create one entry per assignment, sorted by newest first
-			for _, a := range realAssignments {
+			for _, a := range real {
 				cwa := &CoachWithAssignment{
-					User:       &coaches[i],
-					StudentID:  &a.StudentID,
-					IsMentor:   a.IsMentor,
-					AssignedAt: &a.CreatedAt,
+					User:      &coaches[i],
+					StudentID: &a.StudentID,
+					IsMentor:  a.IsMentor,
 				}
-				// Include mentor info if this is a coach assignment (not mentor assignment)
-				if !a.IsMentor {
-					// Use mentor from this specific assignment, or fall back to default mentor
-					if a.MentorCoachID != "" {
-						cwa.MentorCoachID = &a.MentorCoachID
-					} else if defaultMentor != "" {
-						// Coach has a default mentor (from tracking entry or other assignments)
-						cwa.MentorCoachID = &defaultMentor
+				if !a.IsMentor && (a.MentorCoachID != "" || defaultMentor != "") {
+					m := a.MentorCoachID
+					if m == "" {
+						m = defaultMentor
 					}
+					cwa.MentorCoachID = &m
 				}
 				assigned = append(assigned, cwa)
 			}
 		}
 	}
 
-	// Sort assigned by assigned_at desc (newest first)
-	for i := 0; i < len(assigned)-1; i++ {
-		for j := i + 1; j < len(assigned); j++ {
-			if assigned[i].AssignedAt != nil && assigned[j].AssignedAt != nil {
-				if assigned[i].AssignedAt.Before(*assigned[j].AssignedAt) {
-					assigned[i], assigned[j] = assigned[j], assigned[i]
-				}
-			}
-		}
-	}
-
-	// Unassigned first, then assigned (sorted by newest assignment)
 	result = append(result, unassigned...)
 	result = append(result, assigned...)
 
@@ -315,22 +246,18 @@ func (s *Store) GetAllUsersGrouped(ctx context.Context) (map[string][]*models.Us
 	return result, nil
 }
 
-func trackingStudentIDForCoach(coachID string) string {
-	// Format: "T-" + last 8 chars of coach_id (max 10 chars total)
-	coachIDLen := len(coachID)
-	if coachIDLen <= 8 {
+func trackingUserIDForCoach(coachID string) string {
+	if len(coachID) <= 8 {
 		return "T-" + coachID
 	}
-	return "T-" + coachID[coachIDLen-8:]
+	return "T-" + coachID[len(coachID)-8:]
 }
 
 func getDefaultMentorForCoachTx(tx *gorm.DB, coachID string) (string, error) {
-	var cs models.CoachStudent
-	err := tx.
-		Where("coach_id = ? AND mentor_coach_id != '' AND mentor_coach_id IS NOT NULL", coachID).
-		First(&cs).Error
+	var r models.Relation
+	err := tx.Where("coach_id = ? AND mentor_id != '' AND mentor_id IS NOT NULL", coachID).First(&r).Error
 	if err == nil {
-		return cs.MentorCoachID, nil
+		return r.MentorID, nil
 	}
 	if err == gorm.ErrRecordNotFound {
 		return "", nil
@@ -339,127 +266,64 @@ func getDefaultMentorForCoachTx(tx *gorm.DB, coachID string) (string, error) {
 }
 
 // SetStudentCoachAssignment assigns/moves/unassigns a student from a coach.
-// If coachID == "", the assignment (if any) is removed.
-// If coachID != "", the assignment is created or moved to the given coach.
-//
-// This also applies the coach's default mentor (if any) to the student's assignment
-// and cleans up mentor tracking rows for the coach once a real student exists.
 func (s *Store) SetStudentCoachAssignment(ctx context.Context, studentID, coachID string) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing models.CoachStudent
-		err := tx.Where("student_id = ?", studentID).First(&existing).Error
-		foundExisting := (err == nil)
+		var existing models.Relation
+		err := tx.Where("user_id = ?", studentID).First(&existing).Error
+		found := (err == nil)
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return err
 		}
-
-		// Remove assignment
 		if coachID == "" {
-			if foundExisting {
-				return tx.Where("coach_id = ? AND student_id = ?", existing.CoachID, studentID).
-					Delete(&models.CoachStudent{}).Error
+			if found {
+				return tx.Where("coach_id = ? AND user_id = ?", existing.CoachID, studentID).Delete(&models.Relation{}).Error
 			}
 			return nil
 		}
-
 		defaultMentor, err := getDefaultMentorForCoachTx(tx, coachID)
 		if err != nil {
 			return err
 		}
-
-		// If already assigned to this coach, just ensure mentor follows default mentor (if any).
-		if foundExisting && existing.CoachID == coachID {
-			return tx.Model(&models.CoachStudent{}).
-				Where("coach_id = ? AND student_id = ?", coachID, studentID).
-				Update("mentor_coach_id", defaultMentor).Error
+		if found && existing.CoachID == coachID {
+			return tx.Model(&models.Relation{}).Where("coach_id = ? AND user_id = ?", coachID, studentID).Update("mentor_id", defaultMentor).Error
 		}
-
-		// Move: delete old assignment if it exists
-		if foundExisting {
-			if err := tx.Where("coach_id = ? AND student_id = ?", existing.CoachID, studentID).
-				Delete(&models.CoachStudent{}).Error; err != nil {
+		if found {
+			if err := tx.Where("coach_id = ? AND user_id = ?", existing.CoachID, studentID).Delete(&models.Relation{}).Error; err != nil {
 				return err
 			}
 		}
-
-		// Create or update the (coach_id, student_id) row
-		var target models.CoachStudent
-		targetErr := tx.Where("coach_id = ? AND student_id = ?", coachID, studentID).First(&target).Error
-		if targetErr == nil {
-			if err := tx.Model(&models.CoachStudent{}).
-				Where("coach_id = ? AND student_id = ?", coachID, studentID).
-				Update("mentor_coach_id", defaultMentor).Error; err != nil {
-				return err
-			}
-		} else if targetErr == gorm.ErrRecordNotFound {
-			if err := tx.Create(&models.CoachStudent{
-				CoachID:       coachID,
-				StudentID:     studentID,
-				MentorCoachID: defaultMentor,
-			}).Error; err != nil {
-				return err
-			}
-		} else {
-			return targetErr
+		if err := tx.Create(&models.Relation{CoachID: coachID, UserID: studentID, MentorID: defaultMentor}).Error; err != nil {
+			return err
 		}
-
-		// If there is a mentor tracking row for this coach, it's no longer needed once we have real students.
-		trackingStudentID := trackingStudentIDForCoach(coachID)
-		return tx.Where("coach_id = ? AND student_id = ?", coachID, trackingStudentID).
-			Delete(&models.CoachStudent{}).Error
+		trackingID := trackingUserIDForCoach(coachID)
+		return tx.Where("coach_id = ? AND user_id = ?", coachID, trackingID).Delete(&models.Relation{}).Error
 	})
 }
 
-// SetCoachMentorAssignment assigns/removes a mentor coach for a coach.
-// If mentorCoachID == "", the mentor assignment is removed.
-//
-// If a coach has no real student rows yet, a tracking row (student_id="T-...") is used
-// to remember the mentor assignment for future student assignments.
+// SetCoachMentorAssignment assigns/removes a mentor for a coach.
 func (s *Store) SetCoachMentorAssignment(ctx context.Context, coachID, mentorCoachID string) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Apply mentor to all rows for this coach (includes tracking rows if present).
-		if err := tx.Model(&models.CoachStudent{}).
-			Where("coach_id = ?", coachID).
-			Update("mentor_coach_id", mentorCoachID).Error; err != nil {
+		if err := tx.Model(&models.Relation{}).Where("coach_id = ?", coachID).Update("mentor_id", mentorCoachID).Error; err != nil {
 			return err
 		}
-
-		trackingStudentID := trackingStudentIDForCoach(coachID)
-
-		// Removing mentor: also remove tracking entry.
+		trackingID := trackingUserIDForCoach(coachID)
 		if mentorCoachID == "" {
-			return tx.Where("coach_id = ? AND student_id = ?", coachID, trackingStudentID).
-				Delete(&models.CoachStudent{}).Error
+			return tx.Where("coach_id = ? AND user_id = ?", coachID, trackingID).Delete(&models.Relation{}).Error
 		}
-
-		// Determine if coach has any real students (exclude tracking rows).
-		var realCount int64
-		if err := tx.Model(&models.CoachStudent{}).
-			Where("coach_id = ? AND student_id NOT LIKE 'T-%'", coachID).
-			Count(&realCount).Error; err != nil {
+		var n int64
+		if err := tx.Model(&models.Relation{}).Where("coach_id = ? AND user_id NOT LIKE 'T-%'", coachID).Count(&n).Error; err != nil {
 			return err
 		}
-
-		// If there are real students, tracking row is not needed; clean it up if it exists.
-		if realCount > 0 {
-			return tx.Where("coach_id = ? AND student_id = ?", coachID, trackingStudentID).
-				Delete(&models.CoachStudent{}).Error
+		if n > 0 {
+			return tx.Where("coach_id = ? AND user_id = ?", coachID, trackingID).Delete(&models.Relation{}).Error
 		}
-
-		// No real students: upsert tracking row to persist mentor assignment.
-		var existing models.CoachStudent
-		err := tx.Where("coach_id = ? AND student_id = ?", coachID, trackingStudentID).First(&existing).Error
+		var r models.Relation
+		err := tx.Where("coach_id = ? AND user_id = ?", coachID, trackingID).First(&r).Error
 		if err == nil {
-			return tx.Model(&models.CoachStudent{}).
-				Where("coach_id = ? AND student_id = ?", coachID, trackingStudentID).
-				Update("mentor_coach_id", mentorCoachID).Error
+			return tx.Model(&models.Relation{}).Where("coach_id = ? AND user_id = ?", coachID, trackingID).Update("mentor_id", mentorCoachID).Error
 		}
 		if err == gorm.ErrRecordNotFound {
-			return tx.Create(&models.CoachStudent{
-				CoachID:       coachID,
-				StudentID:     trackingStudentID,
-				MentorCoachID: mentorCoachID,
-			}).Error
+			return tx.Create(&models.Relation{CoachID: coachID, UserID: trackingID, MentorID: mentorCoachID}).Error
 		}
 		return err
 	})

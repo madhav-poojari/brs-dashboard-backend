@@ -35,15 +35,15 @@ func TagAllowedForRole(tag string, role models.Role) bool {
 // IsCoachOf / IsMentorOf / IsRelatedStudent
 func (s *Store) IsCoachOf(ctx context.Context, coachID, studentID string) (bool, error) {
 	var cnt int64
-	err := s.DB.WithContext(ctx).Table("coach_students").
-		Where("coach_id = ? AND student_id = ?", coachID, studentID).
+	err := s.DB.WithContext(ctx).Table("relations").
+		Where("user_id = ? AND coach_id = ?", studentID, coachID).
 		Count(&cnt).Error
 	return cnt > 0, err
 }
 func (s *Store) IsMentorOf(ctx context.Context, mentorID, studentID string) (bool, error) {
 	var cnt int64
-	err := s.DB.WithContext(ctx).Table("coach_students").
-		Where("mentor_coach_id = ? AND student_id = ?", mentorID, studentID).
+	err := s.DB.WithContext(ctx).Table("relations").
+		Where("user_id = ? AND mentor_id = ?", studentID, mentorID).
 		Count(&cnt).Error
 	return cnt > 0, err
 }

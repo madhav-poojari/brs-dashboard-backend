@@ -68,8 +68,8 @@ func (s *Store) ListStudentsForCoachOrMentor(ctx context.Context, userID string)
 	err := s.DB.WithContext(ctx).
 		Table("users").
 		Select("users.*").
-		Joins("JOIN coach_students cs ON cs.student_id = users.id").
-		Where("cs.coach_id = ? OR cs.mentor_coach_id = ?", userID, userID).
+		Joins("JOIN relations r ON r.user_id = users.id").
+		Where("r.coach_id = ? OR r.mentor_id = ?", userID, userID).
 		Order("users.created_at DESC").
 		Find(&students).Error
 	if err != nil {
@@ -83,18 +83,9 @@ func (s *Store) ListStudentsForCoachOrMentor(ctx context.Context, userID string)
 }
 
 func (s *Store) GetCoachesByStudentID(ctx context.Context, studentID string) (string, string, error) {
-	var result struct {
-		CoachID       string `gorm:"column:coach_id"`
-		MentorCoachID string `gorm:"column:mentor_coach_id"`
-	}
-
-	if err := s.DB.WithContext(ctx).
-		Table("coach_students").
-		Select("coach_id, mentor_coach_id").
-		Where("student_id = ?", studentID).
-		First(&result).Error; err != nil {
+	var r models.Relation
+	if err := s.DB.WithContext(ctx).Where("user_id = ?", studentID).First(&r).Error; err != nil {
 		return "", "", err
 	}
-
-	return result.CoachID, result.MentorCoachID, nil
+	return r.CoachID, r.MentorID, nil
 }

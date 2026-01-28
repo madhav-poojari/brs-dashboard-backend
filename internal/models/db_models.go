@@ -49,11 +49,16 @@ type RefreshToken struct {
 	Revoked   bool      `gorm:"default:false" json:"revoked"`
 }
 
-type CoachStudent struct {
-	CoachID       string `gorm:"size:10;primaryKey"`
-	StudentID     string `gorm:"size:10;primaryKey"`
-	MentorCoachID string `gorm:"size:10;index"`
+// Relation: table "relations", columns user_id, coach_id, mentor_id.
+// Same shape as old coach_students (student_id→user_id, mentor_coach_id→mentor_id). Composite PK (coach_id, user_id).
+// TableName() tells GORM the table is "relations" instead of inferring from the struct name.
+type Relation struct {
+	CoachID  string `gorm:"column:coach_id;size:10;primaryKey"`
+	UserID   string `gorm:"column:user_id;size:10;primaryKey"`
+	MentorID string `gorm:"column:mentor_id;size:10;index"`
 }
+
+func (Relation) TableName() string { return "relations" }
 
 type LessonPlan struct {
 	ID          uint           `gorm:"primaryKey" json:"id"`
