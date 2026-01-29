@@ -54,7 +54,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "Invalid Request body", nil, err.Error())
 		return
 	}
-	
+
 	// Validate and set role
 	role := models.RoleStudent // default role
 	if req.Role != "" {
@@ -71,7 +71,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	
+
 	user, err := h.user.CreateUser(r.Context(), req.Email, req.Password, req.FirstName, req.LastName, role, "")
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "error creating user", nil, err.Error())

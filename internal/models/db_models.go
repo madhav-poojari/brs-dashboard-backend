@@ -91,3 +91,34 @@ type Note struct {
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
 }
+
+type AttendanceClassType string
+
+const (
+	AttendanceClassTypeRegular      AttendanceClassType = "regular"
+	AttendanceClassTypeGameSession  AttendanceClassType = "game_session"
+	AttendanceClassTypeDual         AttendanceClassType = "dual"
+	AttendanceClassTypeSubstitution AttendanceClassType = "substitution"
+)
+
+type Attendance struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+
+	StudentID string `gorm:"index;size:10;not null" json:"student_id"`
+	Student   User   `gorm:"foreignKey:StudentID;references:ID" json:"student,omitempty"`
+
+	CoachID string `gorm:"index;size:10;not null" json:"coach_id"`
+	Coach   User   `gorm:"foreignKey:CoachID;references:ID" json:"coach,omitempty"`
+
+	ClassType AttendanceClassType `gorm:"type:text;not null" json:"class_type"`
+	Date      time.Time           `gorm:"type:date;index;not null" json:"date"`
+	SessionID string              `gorm:"index;size:64" json:"session_id,omitempty"`
+
+	IsVerified      bool   `gorm:"default:false" json:"is_verified"`
+	ClassHighlights string `gorm:"type:text" json:"class_highlights"`
+	Homework        string `gorm:"type:text" json:"homework"`
+
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+}

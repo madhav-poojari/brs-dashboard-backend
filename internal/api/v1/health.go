@@ -7,7 +7,6 @@ import (
 
 	"github.com/madhava-poojari/dashboard-api/internal/models"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
-
 )
 
 func HealthHandler(s *store.Store) http.HandlerFunc {

@@ -58,6 +58,7 @@ func (a *API) routes() {
 	userH := NewUserHandler(ss)
 	adminH := NewAdminHandler(ss)
 	notesH := NewNotesHandler(ss)
+	attH := NewAttendanceHandler(ss)
 
 	r := a.router
 	// auth routes
@@ -80,6 +81,20 @@ func (a *API) routes() {
 			r.Get("/", notesH.GetNotesByUser)
 			r.Patch("/{id}", notesH.UpdateNote)
 			r.Delete("/{id}", notesH.DeleteNote)
+		})
+	})
+
+	// attendance routes (protected; coach/mentor/admin only)
+	r.Route("/attendances", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(ss.Store))
+			r.Use(auth.RoleMiddleware("coach", "mentor", "admin"))
+			r.Post("/", attH.CreateAttendance)
+			r.Get("/", attH.ListAttendances)
+			r.Get("/{id}", attH.GetAttendance)
+			r.Patch("/{id}", attH.UpdateAttendance)
+			r.Delete("/{id}", attH.DeleteAttendance)
 		})
 	})
 

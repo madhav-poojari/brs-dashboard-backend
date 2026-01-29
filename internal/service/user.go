@@ -18,7 +18,7 @@ func NewUserService(s *store.Store) *UserService {
 	return &UserService{store: s}
 }
 
-func (u *UserService) CreateUser(ctx context.Context, email, password, firstName, lastName string, role models.Role,picture string) (*models.User, error) {
+func (u *UserService) CreateUser(ctx context.Context, email, password, firstName, lastName string, role models.Role, picture string) (*models.User, error) {
 	uid, err := utils.GenerateUserID()
 	if err != nil {
 		return nil, err
@@ -44,13 +44,13 @@ func (u *UserService) CreateUser(ctx context.Context, email, password, firstName
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	ud:=&models.UserDetails{
-		UserID:       uid,
-		ProfilePictureURL:      picture,
+	ud := &models.UserDetails{
+		UserID:            uid,
+		ProfilePictureURL: picture,
 	}
 	// try create; if conflict on ID (rare), regenerate few times
 	for i := 0; i < 5; i++ {
-		err = u.store.CreateUser(ctx, user,ud)
+		err = u.store.CreateUser(ctx, user, ud)
 		if err == nil {
 			return user, nil
 		}
