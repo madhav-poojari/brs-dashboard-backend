@@ -49,11 +49,16 @@ type RefreshToken struct {
 	Revoked   bool      `gorm:"default:false" json:"revoked"`
 }
 
-type CoachStudent struct {
-	CoachID       string `gorm:"size:10;primaryKey"`
-	StudentID     string `gorm:"size:10;primaryKey"`
-	MentorCoachID string `gorm:"size:10;index"` // added column
+// Relation: table "relations", columns user_id, coach_id, mentor_id.
+// Same shape as old coach_students (student_id→user_id, mentor_coach_id→mentor_id). Composite PK (coach_id, user_id).
+// TableName() tells GORM the table is "relations" instead of inferring from the struct name.
+type Relation struct {
+	CoachID  string `gorm:"column:coach_id;size:10;primaryKey"`
+	UserID   string `gorm:"column:user_id;size:10;primaryKey"`
+	MentorID string `gorm:"column:mentor_id;size:10;index"`
 }
+
+func (Relation) TableName() string { return "relations" }
 
 type LessonPlan struct {
 	ID          uint           `gorm:"primaryKey" json:"id"`
@@ -85,4 +90,35 @@ type Note struct {
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type AttendanceClassType string
+
+const (
+	AttendanceClassTypeRegular      AttendanceClassType = "regular"
+	AttendanceClassTypeGameSession  AttendanceClassType = "game_session"
+	AttendanceClassTypeDual         AttendanceClassType = "dual"
+	AttendanceClassTypeSubstitution AttendanceClassType = "substitution"
+)
+
+type Attendance struct {
+	ID uint `gorm:"primaryKey" json:"id"`
+
+	StudentID string `gorm:"index;size:10;not null" json:"student_id"`
+	Student   User   `gorm:"foreignKey:StudentID;references:ID" json:"student,omitempty"`
+
+	CoachID string `gorm:"index;size:10;not null" json:"coach_id"`
+	Coach   User   `gorm:"foreignKey:CoachID;references:ID" json:"coach,omitempty"`
+
+	ClassType AttendanceClassType `gorm:"type:text;not null" json:"class_type"`
+	Date      time.Time           `gorm:"type:date;index;not null" json:"date"`
+	SessionID string              `gorm:"index;size:64" json:"session_id,omitempty"`
+
+	IsVerified      bool   `gorm:"default:false" json:"is_verified"`
+	ClassHighlights string `gorm:"type:text" json:"class_highlights"`
+	Homework        string `gorm:"type:text" json:"homework"`
+
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }

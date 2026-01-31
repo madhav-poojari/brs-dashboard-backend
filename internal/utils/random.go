@@ -11,7 +11,6 @@ func RandomToken() string {
 	return hex.EncodeToString(b)
 }
 
-
 func GenerateRandomString(length int) string {
 	b := make([]byte, length)
 	_, _ = rand.Read(b)

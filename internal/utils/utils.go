@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
-
 )
 
 func GenerateID() string {
@@ -38,5 +37,3 @@ func DatatypesJSONFromMap(m map[string]interface{}) datatypes.JSON {
 	b, _ := json.Marshal(m)
 	return datatypes.JSON(b)
 }
-
-

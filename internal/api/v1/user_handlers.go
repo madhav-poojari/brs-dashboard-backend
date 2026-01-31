@@ -34,8 +34,8 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	coachId, mentorId, err := h.store.GetCoachesByStudentID(ctx, current.ID)
-	// authorization: owner or (admin|coach|mentor)
+	// Coaches/mentors of the *requested* user (id); used to allow coach/mentor to view their student.
+	coachId, mentorId, _ := h.store.GetCoachesByStudentID(ctx, id)
 	if !CanAccessStudentData(current, id, coachId, mentorId) {
 		utils.WriteJSONResponse(w, http.StatusForbidden, false, "forbidden", nil, nil)
 		return
@@ -105,15 +105,15 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	coachId, mentorId, err := h.store.GetCoachesByStudentID(ctx, current.ID)
-	// authorization: owner or (admin|coach|mentor)
+	// Coaches/mentors of the *requested* user (id); used to allow coach/mentor to update their student.
+	coachId, mentorId, _ := h.store.GetCoachesByStudentID(ctx, id)
 	if !CanAccessStudentData(current, id, coachId, mentorId) {
 		utils.WriteJSONResponse(w, http.StatusForbidden, false, "forbidden", nil, nil)
 		return
 	}
 
 	// ensure target exists
-	_, err = h.store.GetUserByID(ctx, id)
+	_, err := h.store.GetUserByID(ctx, id)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusNotFound, false, "user not found", nil, err.Error())
 		return
@@ -219,6 +219,53 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "success", users, nil)
+}
+
+// POST /users/reset-password - allows users to reset their own password
+func (h *UserHandler) ResetOwnPassword(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	current := auth.GetUserFromCtx(ctx)
+	if current == nil {
+		utils.WriteJSONResponse(w, http.StatusUnauthorized, false, "unauthorized", nil, nil)
+		return
+	}
+
+	var payload struct {
+		NewPassword string `json:"new_password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request", nil, err)
+		return
+	}
+
+	if payload.NewPassword == "" {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "new_password is required", nil, nil)
+		return
+	}
+
+	if len(payload.NewPassword) < 6 {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "password must be at least 6 characters long", nil, nil)
+		return
+	}
+
+	// Hash the new password
+	hash, err := utils.HashPassword(payload.NewPassword)
+	if err != nil {
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error hashing password", nil, err)
+		return
+	}
+
+	// Update user's password (only their own)
+	err = h.store.UpdateUserFields(ctx, current.ID, map[string]interface{}{
+		"password_hash": hash,
+	})
+	if err != nil {
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error updating password", nil, err)
+		return
+	}
+
+	utils.WriteJSONResponse(w, http.StatusOK, true, "password reset successfully", nil, nil)
 }
 
 func CanAccessStudentData(current *models.User, targetID string, coachId string, mentorId string) bool {

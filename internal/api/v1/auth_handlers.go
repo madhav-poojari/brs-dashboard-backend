@@ -48,12 +48,30 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		Password  string `json:"password"`
 		FirstName string `json:"first_name"`
 		LastName  string `json:"last_name"`
+		Role      string `json:"role"` // Optional: "student", "coach", or "mentor"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "Invalid Request body", nil, err.Error())
 		return
 	}
+
+	// Validate and set role
 	role := models.RoleStudent // default role
+	if req.Role != "" {
+		roleStr := strings.ToLower(strings.TrimSpace(req.Role))
+		switch roleStr {
+		case "student":
+			role = models.RoleStudent
+		case "coach":
+			role = models.RoleCoach
+		case "mentor":
+			role = models.RoleMentor
+		default:
+			utils.WriteJSONResponse(w, http.StatusBadRequest, false, "Invalid role. Must be 'student', 'coach', or 'mentor'", nil, nil)
+			return
+		}
+	}
+
 	user, err := h.user.CreateUser(r.Context(), req.Email, req.Password, req.FirstName, req.LastName, role, "")
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "error creating user", nil, err.Error())
@@ -62,6 +80,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	// do not return tokens; user must be approved first
 	utils.WriteJSONResponse(w, http.StatusCreated, true, "user created, pending approval", map[string]interface{}{
 		"user_id": user.ID,
+		"role":    user.Role,
 	}, nil)
 	return
 }

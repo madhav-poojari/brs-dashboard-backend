@@ -1,4 +1,5 @@
 package models
+
 type APIResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message,omitempty"`
@@ -7,9 +8,10 @@ type APIResponse struct {
 }
 
 type Role string
+
 const (
-	RoleAdmin  Role = "admin"
-	RoleCoach  Role = "coach"
-	RoleMentor Role = "mentor"
+	RoleAdmin   Role = "admin"
+	RoleCoach   Role = "coach"
+	RoleMentor  Role = "mentor"
 	RoleStudent Role = "student"
 )
