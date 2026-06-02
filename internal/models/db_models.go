@@ -52,12 +52,13 @@ type RefreshToken struct {
 	Revoked   bool      `gorm:"default:false" json:"revoked"`
 }
 
-// Relation: table "relations", columns user_id, coach_id, mentor_id.
-// Same shape as old coach_students (student_id→user_id, mentor_coach_id→mentor_id). Composite PK (coach_id, user_id).
-// TableName() tells GORM the table is "relations" instead of inferring from the struct name.
+// Relation: table "relations", columns user_id (PK), coach_id, mentor_id.
+// For students:  user_id = student_id, coach_id = assigned coach, mentor_id = assigned mentor.
+// For coaches:   user_id = coach_id,   coach_id = "" (empty),     mentor_id = assigned mentor.
+// One row per user_id.
 type Relation struct {
-	CoachID  string `gorm:"column:coach_id;size:10;primaryKey"`
 	UserID   string `gorm:"column:user_id;size:10;primaryKey"`
+	CoachID  string `gorm:"column:coach_id;size:10;index"`
 	MentorID string `gorm:"column:mentor_id;size:10;index"`
 }
 
@@ -171,7 +172,32 @@ type ClassSchedule struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
 	StudentID string `gorm:"index;size:10;not null" json:"student_id"`
 	Student   User   `gorm:"foreignKey:StudentID;references:ID" json:"student,omitempty"`
-	DayOfWeek int    `gorm:"not null" json:"day_of_week"`                                // 0=Sun..6=Sat
-	StartTime string `gorm:"type:text;not null" json:"start_time"`                       // "HH:MM" in student's timezone
-	Timezone  string `gorm:"type:text;not null" json:"timezone"`                         // IANA timezone e.g. "America/New_York"
+	DayOfWeek int    `gorm:"not null" json:"day_of_week"`          // 0=Sun..6=Sat
+	StartTime string `gorm:"type:text;not null" json:"start_time"` // "HH:MM" in student's timezone
+	Timezone  string `gorm:"type:text;not null" json:"timezone"`   // IANA timezone e.g. "America/New_York"
+}
+
+type ReferralRelationship struct {
+	ID                      string `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	ReferrerID              string `gorm:"size:10;index"`
+	RefereeID               string `gorm:"size:10;index"`
+	RelationshipType        string `gorm:"index"`
+	RelationshipDescription *string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	CreatedBy               *string `gorm:"size:10"`
+}
+
+func (ReferralRelationship) TableName() string {
+	return "referral_relationships"                        // IANA timezone e.g. "America/New_York"
+}
+
+type RatingHistory struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	UserID     string    `gorm:"index;size:10;not null" json:"user_id"`
+	Platform   string    `gorm:"type:text;not null" json:"platform"`    // chesscom, lichess, fide, uscf
+	RatingType string    `gorm:"type:text;not null" json:"rating_type"` // rapid, classical
+	Rating     int       `gorm:"not null" json:"rating"`
+	RecordedAt time.Time `gorm:"not null" json:"recorded_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }

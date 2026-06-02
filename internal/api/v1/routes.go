@@ -61,6 +61,7 @@ func (a *API) routes() {
 	attH := NewAttendanceHandler(ss)
 	imgH := NewImageHandler(ss, a.cfg)
 	scraperH := NewScraperHandler(ss, a.cfg)
+	referralH := NewReferralHandler(ss)
 
 	r := a.router
 	// auth routes
@@ -152,10 +153,30 @@ func (a *API) routes() {
 		adminGroup.Put("/assignments", adminH.UpdateAssignments)
 	})
 
+	r.Route("/referral-network", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(a.store))
+			r.Use(auth.RoleMiddleware("admin"))
+
+			// Read endpoints
+			r.Get("/graph", referralH.GetGraph)
+			r.Get("/node/{user_id}", referralH.GetNodeDetail)
+
+			// Write endpoints
+			r.Post("/relationship", referralH.CreateRelationship)
+			r.Put("/relationship/{relationship_id}", referralH.UpdateRelationship)
+			r.Delete("/relationship/{relationship_id}", referralH.DeleteRelationship)
+		})
+	})
+
 	r.Route("/health", func(r chi.Router) {
 		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Get("/", HealthHandler(a.store))
 	})
+
+	// Rating handler (used by both /ratings and /scraper/uscf routes)
+	ratingH := NewRatingHandler(ss)
 
 	// Scraper routes (API-key protected, used by the Chrome extension)
 	r.Route("/scraper", func(r chi.Router) {
@@ -163,6 +184,10 @@ func (a *API) routes() {
 		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
 		r.Get("/zipcodes", scraperH.GetZipcodes)
 		r.Post("/tournaments", scraperH.SubmitTournaments)
+
+		// USCF rating scraper (Chrome extension)
+		r.Get("/uscf/students", ratingH.GetUSCFStudents)
+		r.Post("/uscf/upload", ratingH.UploadUSCFRatings)
 	})
 
 	// Schedule routes (class time slots)
@@ -176,6 +201,16 @@ func (a *API) routes() {
 			r.With(auth.RoleMiddleware("coach", "mentor", "admin")).Get("/", schedH.ListSchedules)
 			r.With(auth.RoleMiddleware("coach", "mentor", "admin")).Patch("/{id}", schedH.UpdateSchedule)
 			r.With(auth.RoleMiddleware("coach", "mentor", "admin")).Delete("/{id}", schedH.DeleteSchedule)
+		})
+	})
+
+	// Rating history routes (progress charts)
+	r.Route("/ratings", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(ss.Store))
+			r.Get("/{studentId}/{platform}", ratingH.GetStudentPlatformRatings)
+			r.With(auth.RoleMiddleware("admin")).Post("/trigger-scrape", ratingH.TriggerScrape)
 		})
 	})
 
