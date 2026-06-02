@@ -259,6 +259,14 @@ func (h *AttendanceHandler) ListAttendances(w http.ResponseWriter, r *http.Reque
 		f.SessionID = &sessionID
 	}
 
+	// "Others" view: exclude records for the user's own assigned students
+	excludeOwnStr := q.Get("exclude_own_students")
+	if excludeOwnStr == "true" && (current.Role == models.RoleCoach || current.Role == models.RoleMentor) {
+		self := current.ID
+		f.ExcludeOwnStudents = &self
+		f.CoachID = &self // only show classes this user taught
+	}
+
 	// Role scoping
 	switch current.Role {
 	case models.RoleAdmin:

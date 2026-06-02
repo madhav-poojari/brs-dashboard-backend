@@ -61,6 +61,7 @@ func (a *API) routes() {
 	attH := NewAttendanceHandler(ss)
 	imgH := NewImageHandler(ss, a.cfg)
 	scraperH := NewScraperHandler(ss, a.cfg)
+	referralH := NewReferralHandler(ss)
 
 	r := a.router
 	// auth routes
@@ -105,6 +106,7 @@ func (a *API) routes() {
 		authMiddleware := auth.AuthMiddleware(a.store)
 		r.With(authMiddleware).Get("/", userH.ListUsers)
 		r.With(authMiddleware).Get("/students", userH.GetStudents)
+		r.With(authMiddleware).Get("/coaches", userH.GetCoachesForAttendance)
 		r.With(authMiddleware).Get("/me", userH.GetSelfProfile)
 		r.With(authMiddleware).Post("/reset-password", userH.ResetOwnPassword)
 		r.With(authMiddleware).Get("/{id}", userH.GetUser)
@@ -149,6 +151,23 @@ func (a *API) routes() {
 
 		// Unified assignment update endpoint (student<->coach, coach<->mentor)
 		adminGroup.Put("/assignments", adminH.UpdateAssignments)
+	})
+
+	r.Route("/referral-network", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(a.store))
+			r.Use(auth.RoleMiddleware("admin"))
+
+			// Read endpoints
+			r.Get("/graph", referralH.GetGraph)
+			r.Get("/node/{user_id}", referralH.GetNodeDetail)
+
+			// Write endpoints
+			r.Post("/relationship", referralH.CreateRelationship)
+			r.Put("/relationship/{relationship_id}", referralH.UpdateRelationship)
+			r.Delete("/relationship/{relationship_id}", referralH.DeleteRelationship)
+		})
 	})
 
 	r.Route("/health", func(r chi.Router) {

@@ -482,6 +482,44 @@ func (h *UserHandler) getPersonInfoByID(
 	}, nil
 }
 
+// GET /users/coaches - returns coaches/mentors for the attendance coach-overview dropdown.
+// Admin: all coach + mentor users. Mentor: coaches under them + themselves.
+func (h *UserHandler) GetCoachesForAttendance(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	current := auth.GetUserFromCtx(ctx)
+	if current == nil {
+		utils.WriteJSONResponse(w, http.StatusUnauthorized, false, "unauthorized", nil, nil)
+		return
+	}
+
+	switch current.Role {
+	case models.RoleAdmin:
+		coaches, err := h.store.GetAllCoaches(ctx)
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error", nil, err.Error())
+			return
+		}
+		mentors, err := h.store.GetAllMentorCoaches(ctx)
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error", nil, err.Error())
+			return
+		}
+		all := append(coaches, mentors...)
+		utils.WriteJSONResponse(w, http.StatusOK, true, "success", all, nil)
+
+	case models.RoleMentor:
+		users, err := h.store.ListCoachesForMentor(ctx, current.ID)
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error", nil, err.Error())
+			return
+		}
+		utils.WriteJSONResponse(w, http.StatusOK, true, "success", users, nil)
+
+	default:
+		utils.WriteJSONResponse(w, http.StatusForbidden, false, "forbidden", nil, nil)
+	}
+}
+
 // copyAdditionalInfo returns a shallow copy of the additional_info map
 // so that modifications don't mutate the original GORM-loaded data.
 func copyAdditionalInfo(src map[string]interface{}) map[string]interface{} {

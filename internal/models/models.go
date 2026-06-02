@@ -30,3 +30,17 @@ const (
 	RoleMentor  Role = "mentor"
 	RoleStudent Role = "student"
 )
+
+// CreateRelationshipRequest is the request body for creating a relationship
+type CreateRelationshipRequest struct {
+	ReferrerID              string  `json:"referrer_id"`
+	RefereeID               string  `json:"referee_id"`
+	RelationshipType        string  `json:"relationship_type"`
+	RelationshipDescription *string `json:"relationship_description"`
+}
+
+// UpdateRelationshipRequest is the request body for updating a relationship
+type UpdateRelationshipRequest struct {
+	RelationshipType        *string `json:"relationship_type"`
+	RelationshipDescription *string `json:"relationship_description"`
+}

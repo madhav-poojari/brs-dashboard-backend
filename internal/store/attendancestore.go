@@ -9,14 +9,15 @@ import (
 )
 
 type AttendanceListFilter struct {
-	StartDate  time.Time
-	EndDate    time.Time
-	StudentID  *string
-	CoachID    *string
-	ClassType  *models.AttendanceClassType
-	SessionID  *string
-	IsVerified *bool
-	MentorID   *string // mentor-scoped listing (via relations)
+	StartDate          time.Time
+	EndDate            time.Time
+	StudentID          *string
+	CoachID            *string
+	ClassType          *models.AttendanceClassType
+	SessionID          *string
+	IsVerified         *bool
+	MentorID           *string // mentor-scoped listing (via relations)
+	ExcludeOwnStudents *string // when set, exclude records where student is assigned to this user
 }
 
 func (s *Store) CreateAttendance(ctx context.Context, a *models.Attendance) error {
@@ -74,9 +75,18 @@ func (s *Store) ListAttendances(ctx context.Context, f AttendanceListFilter) ([]
 		q = q.Where(
 			`(
 				EXISTS (SELECT 1 FROM relations r WHERE r.user_id = attendances.student_id AND r.mentor_id = ?)
-				OR EXISTS (SELECT 1 FROM relations r2 WHERE r2.coach_id = attendances.coach_id AND r2.mentor_id = ?)
+				OR EXISTS (SELECT 1 FROM relations r2 WHERE r2.user_id = attendances.coach_id AND r2.mentor_id = ?)
 			)`,
 			mentorID, mentorID,
+		)
+	}
+
+	// Exclude records for the user's own assigned students ("Others" view)
+	if f.ExcludeOwnStudents != nil && *f.ExcludeOwnStudents != "" {
+		userID := *f.ExcludeOwnStudents
+		q = q.Where(
+			"student_id NOT IN (SELECT user_id FROM relations WHERE coach_id = ? OR mentor_id = ?)",
+			userID, userID,
 		)
 	}
 
@@ -90,7 +100,7 @@ func (s *Store) ListAttendances(ctx context.Context, f AttendanceListFilter) ([]
 func (s *Store) IsMentorOfCoach(ctx context.Context, mentorID string, coachID string) (bool, error) {
 	var cnt int64
 	err := s.DB.WithContext(ctx).Table("relations").
-		Where("coach_id = ? AND mentor_id = ?", coachID, mentorID).
+		Where("user_id = ? AND mentor_id = ?", coachID, mentorID).
 		Count(&cnt).Error
 	return cnt > 0, err
 }
