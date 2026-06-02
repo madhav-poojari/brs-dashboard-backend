@@ -24,6 +24,7 @@ func (s *Store) SyncZipcodesFromUserDetails(ctx context.Context) error {
 				FROM user_details ud
 				JOIN users u ON u.id = ud.user_id
 				WHERE u.active = true AND u.approved = true
+				  AND u.role = 'student'
 				  AND ud.zipcode IS NOT NULL AND ud.zipcode != ''
 				ON CONFLICT (zipcode, distance) DO NOTHING
 			`, dist).Error; err != nil {
@@ -39,6 +40,7 @@ func (s *Store) SyncZipcodesFromUserDetails(ctx context.Context) error {
 				FROM user_details ud
 				JOIN users u ON u.id = ud.user_id
 				WHERE u.active = true AND u.approved = true
+				  AND u.role = 'student'
 				  AND ud.zipcode IS NOT NULL AND ud.zipcode != ''
 			)
 		`).Error; err != nil {
