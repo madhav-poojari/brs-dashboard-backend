@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/madhava-poojari/dashboard-api/internal/config"
@@ -24,6 +25,11 @@ func NewGormStore(cfg *config.Config) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Migrate relations table from composite PK to single PK (if needed)
+	if err := migrateRelationsSchema(db); err != nil {
+		return nil, fmt.Errorf("relations migration failed: %w", err)
+	}
+
 	// AutoMigrate (non-destructive: creates tables/columns/indexes)
 
 	if err := db.Set("gorm:DisableForeignKeyConstraintWhenMigrating", true).AutoMigrate(
@@ -132,4 +138,89 @@ func (s *Store) Close() error {
 		return err
 	}
 	return sqlDB.Close()
+}
+
+// migrateRelationsSchema migrates the relations table from composite PK (coach_id, user_id)
+// to single PK (user_id). This is a one-time migration that:
+// 1. Detects if old schema exists (coach_id is part of PK)
+// 2. Copies student rows (skipping T- tracking rows)
+// 3. Creates coach-mentor rows from tracking data
+// 4. Replaces old table with new schema
+func migrateRelationsSchema(db *gorm.DB) error {
+	// Check if relations table exists
+	if !db.Migrator().HasTable("relations") {
+		return nil // table doesn't exist yet, AutoMigrate will create it
+	}
+
+	// Check if the old composite PK still exists by seeing if coach_id is part of the PK.
+	var count int64
+	err := db.Raw(`
+		SELECT COUNT(*) FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+		WHERE tc.table_name = 'relations' AND tc.constraint_type = 'PRIMARY KEY' AND kcu.column_name = 'coach_id'
+	`).Scan(&count).Error
+	if err != nil {
+		return fmt.Errorf("checking relations schema: %w", err)
+	}
+	if count == 0 {
+		return nil // already migrated
+	}
+
+	fmt.Println("[migration] Migrating relations table from composite PK to single PK (user_id)...")
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		// 1. Create temp table with new schema
+		if err := tx.Exec(`
+			CREATE TABLE relations_new (
+				user_id  TEXT PRIMARY KEY,
+				coach_id TEXT DEFAULT '',
+				mentor_id TEXT DEFAULT ''
+			)
+		`).Error; err != nil {
+			return fmt.Errorf("creating relations_new: %w", err)
+		}
+
+		// 2. Copy student rows (skip T- tracking rows)
+		if err := tx.Exec(`
+			INSERT INTO relations_new (user_id, coach_id, mentor_id)
+			SELECT DISTINCT ON (user_id) user_id, coach_id, COALESCE(mentor_id, '')
+			FROM relations
+			WHERE user_id NOT LIKE 'T-%%'
+			ORDER BY user_id
+		`).Error; err != nil {
+			return fmt.Errorf("copying student rows: %w", err)
+		}
+
+		// 3. Create coach-mentor rows from tracking rows and existing mentor assignments
+		if err := tx.Exec(`
+			INSERT INTO relations_new (user_id, coach_id, mentor_id)
+			SELECT DISTINCT ON (coach_id) coach_id, '', COALESCE(mentor_id, '')
+			FROM relations
+			WHERE mentor_id IS NOT NULL AND mentor_id != ''
+			  AND coach_id NOT IN (SELECT user_id FROM relations_new)
+			ORDER BY coach_id
+			ON CONFLICT (user_id) DO NOTHING
+		`).Error; err != nil {
+			return fmt.Errorf("creating coach-mentor rows: %w", err)
+		}
+
+		// 4. Drop old table and rename new
+		if err := tx.Exec(`DROP TABLE relations`).Error; err != nil {
+			return fmt.Errorf("dropping old relations: %w", err)
+		}
+		if err := tx.Exec(`ALTER TABLE relations_new RENAME TO relations`).Error; err != nil {
+			return fmt.Errorf("renaming relations_new: %w", err)
+		}
+
+		// 5. Create indexes
+		if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_relations_coach_id ON relations (coach_id)`).Error; err != nil {
+			return fmt.Errorf("creating coach_id index: %w", err)
+		}
+		if err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_relations_mentor_id ON relations (mentor_id)`).Error; err != nil {
+			return fmt.Errorf("creating mentor_id index: %w", err)
+		}
+
+		fmt.Println("[migration] Relations table migration complete.")
+		return nil
+	})
 }

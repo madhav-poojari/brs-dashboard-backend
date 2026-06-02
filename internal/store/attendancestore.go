@@ -75,7 +75,7 @@ func (s *Store) ListAttendances(ctx context.Context, f AttendanceListFilter) ([]
 		q = q.Where(
 			`(
 				EXISTS (SELECT 1 FROM relations r WHERE r.user_id = attendances.student_id AND r.mentor_id = ?)
-				OR EXISTS (SELECT 1 FROM relations r2 WHERE r2.coach_id = attendances.coach_id AND r2.mentor_id = ?)
+				OR EXISTS (SELECT 1 FROM relations r2 WHERE r2.user_id = attendances.coach_id AND r2.mentor_id = ?)
 			)`,
 			mentorID, mentorID,
 		)
@@ -100,7 +100,7 @@ func (s *Store) ListAttendances(ctx context.Context, f AttendanceListFilter) ([]
 func (s *Store) IsMentorOfCoach(ctx context.Context, mentorID string, coachID string) (bool, error) {
 	var cnt int64
 	err := s.DB.WithContext(ctx).Table("relations").
-		Where("coach_id = ? AND mentor_id = ?", coachID, mentorID).
+		Where("user_id = ? AND mentor_id = ?", coachID, mentorID).
 		Count(&cnt).Error
 	return cnt > 0, err
 }

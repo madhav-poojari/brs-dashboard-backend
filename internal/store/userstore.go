@@ -85,7 +85,7 @@ func (s *Store) ListStudentsForCoachOrMentor(ctx context.Context, userID string)
 		Table("users").
 		Select("users.*").
 		Joins("JOIN relations r ON r.user_id = users.id").
-		Where("(r.coach_id = ? OR r.mentor_id = ?) AND users.active = true", userID, userID).
+		Where("(r.coach_id = ? OR r.mentor_id = ?) AND users.role = 'student' AND users.active = true", userID, userID).
 		Order("users.created_at DESC").
 		Find(&students).Error
 	if err != nil {
@@ -131,13 +131,14 @@ func (s *Store) GetCoachesByStudentID(ctx context.Context, studentID string) (st
 
 // ListCoachesForMentor returns all coaches assigned to a mentor (via relations), plus the mentor themselves.
 func (s *Store) ListCoachesForMentor(ctx context.Context, mentorID string) ([]*models.User, error) {
-	// Get distinct coach IDs from relations where mentor_id matches
+	// With the new schema, coach-mentor rows have user_id=coach_id, coach_id='', mentor_id=mentorID
 	var coachIDs []string
 	if err := s.DB.WithContext(ctx).
 		Table("relations").
-		Where("mentor_id = ?", mentorID).
-		Distinct("coach_id").
-		Pluck("coach_id", &coachIDs).Error; err != nil {
+		Joins("JOIN users u ON u.id = relations.user_id").
+		Where("relations.mentor_id = ? AND u.role = 'coach'", mentorID).
+		Distinct("relations.user_id").
+		Pluck("relations.user_id", &coachIDs).Error; err != nil {
 		return nil, err
 	}
 
@@ -176,11 +177,15 @@ func GetMentorCoachDetails(db *gorm.DB, studentID string) (string, string, strin
 	var coachDetails models.UserDetails
 	var mentorDetails models.UserDetails
 
-	db.First(&coach, "id = ?", relation.CoachID)
-	db.First(&coachDetails, "user_id = ?", relation.CoachID)
+	if relation.CoachID != "" {
+		db.First(&coach, "id = ?", relation.CoachID)
+		db.First(&coachDetails, "user_id = ?", relation.CoachID)
+	}
 
-	db.First(&mentor, "id = ?", relation.MentorID)
-	db.First(&mentorDetails, "user_id = ?", relation.MentorID)
+	if relation.MentorID != "" {
+		db.First(&mentor, "id = ?", relation.MentorID)
+		db.First(&mentorDetails, "user_id = ?", relation.MentorID)
+	}
 
 	coachName := coach.FirstName + " " + coach.LastName
 	mentorName := mentor.FirstName + " " + mentor.LastName
