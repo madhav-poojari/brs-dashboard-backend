@@ -191,3 +191,13 @@ type ReferralRelationship struct {
 func (ReferralRelationship) TableName() string {
 	return "referral_relationships"                        // IANA timezone e.g. "America/New_York"
 }
+
+type RatingHistory struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	UserID     string    `gorm:"index;size:10;not null" json:"user_id"`
+	Platform   string    `gorm:"type:text;not null" json:"platform"`    // chesscom, lichess, fide, uscf
+	RatingType string    `gorm:"type:text;not null" json:"rating_type"` // rapid, classical
+	Rating     int       `gorm:"not null" json:"rating"`
+	RecordedAt time.Time `gorm:"not null" json:"recorded_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
