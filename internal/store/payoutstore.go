@@ -72,7 +72,9 @@ func (s *Store) ListPendingTransactions(ctx context.Context) ([]*models.UnitTran
 }
 
 // ApproveTransaction sets status=approved, updates balance, and sets last_transaction_id — all atomically.
-func (s *Store) ApproveTransaction(ctx context.Context, txID uint, adminID string) error {
+// If overrideUnits is non-nil, it replaces the transaction's units before approval.
+// If overrideReason is non-empty, it replaces the transaction's reason before approval.
+func (s *Store) ApproveTransaction(ctx context.Context, txID uint, adminID string, overrideUnits *float64, overrideReason string) error {
 	return s.DB.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		// 1. Fetch the transaction
 		var unitTx models.UnitTransaction
@@ -83,17 +85,27 @@ func (s *Store) ApproveTransaction(ctx context.Context, txID uint, adminID strin
 			return gorm.ErrInvalidData // already processed
 		}
 
-		// 2. Update transaction status
+		// 2. Apply overrides if provided
+		if overrideUnits != nil {
+			unitTx.Units = *overrideUnits
+		}
+		if overrideReason != "" {
+			unitTx.Reason = overrideReason
+		}
+
+		// 3. Update transaction status (and possibly units/reason)
 		now := time.Now()
 		if err := db.Model(&unitTx).Updates(map[string]interface{}{
 			"status":      models.UnitTxStatusApproved,
 			"approved_by": adminID,
 			"approved_at": now,
+			"units":       unitTx.Units,
+			"reason":      unitTx.Reason,
 		}).Error; err != nil {
 			return err
 		}
 
-		// 3. Upsert balance: create if not exists, add units
+		// 4. Upsert balance: create if not exists, add units
 		var bal models.UnitBalance
 		err := db.Where("user_id = ?", unitTx.UserID).First(&bal).Error
 		if err == gorm.ErrRecordNotFound {

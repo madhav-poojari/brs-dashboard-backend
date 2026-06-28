@@ -48,6 +48,7 @@ func (h *PayoutHandler) ListPending(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /payouts/approve/{id} — Approve a pending transaction (admin only)
+// Accepts optional JSON body: { "units": 5.0, "reason": "updated reason" }
 func (h *PayoutHandler) ApproveTransaction(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	current := auth.GetUserFromCtx(ctx)
@@ -63,7 +64,15 @@ func (h *PayoutHandler) ApproveTransaction(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.store.ApproveTransaction(ctx, uint(id), current.ID); err != nil {
+	// Parse optional overrides from body
+	var body struct {
+		Units  *float64 `json:"units"`
+		Reason string   `json:"reason"`
+	}
+	// Ignore decode errors — body is optional
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	if err := h.store.ApproveTransaction(ctx, uint(id), current.ID, body.Units, body.Reason); err != nil {
 		if store.IsNotFound(err) {
 			utils.WriteJSONResponse(w, http.StatusNotFound, false, "transaction not found", nil, nil)
 			return
