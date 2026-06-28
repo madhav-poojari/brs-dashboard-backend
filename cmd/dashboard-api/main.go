@@ -25,6 +25,11 @@ func main() {
 		log.Fatalf("db connect: %v", err)
 	}
 	defer pool.Close()
+	
+	// Run silent notifications backfill for existing historical data
+	if err := service.BackfillHistoricNotifications(pool); err != nil {
+		log.Printf("[Startup] Warning: backfill failed: %v", err)
+	}
 
 	appServer := server.NewServer(cfg, pool)
 
@@ -32,6 +37,7 @@ func main() {
 
 	// Start rating cron scheduler (returns instance for graceful shutdown)
 	cronScheduler := service.StartRatingCrons(pool)
+	notifCron := service.StartNotificationCrons(pool)
 
 	// Start payout cron scheduler (monthly unit deductions)
 	payoutCron := service.StartPayoutCron(pool)
@@ -67,6 +73,15 @@ func main() {
 		log.Println("Payout cron jobs finished gracefully")
 	case <-time.After(2 * time.Minute):
 		log.Println("Payout cron jobs did not finish in time, forcing shutdown")
+	}
+
+	// Stop notification cron scheduler
+	notifCronCtx := notifCron.Stop()
+	select {
+	case <-notifCronCtx.Done():
+		log.Println("Notification cron jobs finished gracefully")
+	case <-time.After(2 * time.Minute):
+		log.Println("Notification cron jobs did not finish in time, forcing shutdown")
 	}
 
 	// Shutdown HTTP server

@@ -62,6 +62,8 @@ func (a *API) routes() {
 	imgH := NewImageHandler(ss, a.cfg)
 	scraperH := NewScraperHandler(ss, a.cfg)
 	referralH := NewReferralHandler(ss)
+	notifH := NewNotificationHandler(ss)
+	notifConfigH := NewNotificationConfigHandler(ss)
 
 	r := a.router
 	// auth routes
@@ -152,6 +154,12 @@ func (a *API) routes() {
 
 		// Unified assignment update endpoint (student<->coach, coach<->mentor)
 		adminGroup.Put("/assignments", adminH.UpdateAssignments)
+
+		// Notification config management
+		adminGroup.Get("/notification-configs", notifConfigH.ListConfigs)
+		adminGroup.Post("/notification-configs", notifConfigH.CreateConfig)
+		adminGroup.Put("/notification-configs/{id}", notifConfigH.UpdateConfig)
+		adminGroup.Delete("/notification-configs/{id}", notifConfigH.DeleteConfig)
 	})
 
 	r.Route("/referral-network", func(r chi.Router) {
@@ -202,6 +210,19 @@ func (a *API) routes() {
 			r.With(auth.RoleMiddleware("coach", "mentor", "admin")).Get("/", schedH.ListSchedules)
 			r.With(auth.RoleMiddleware("coach", "mentor", "admin")).Patch("/{id}", schedH.UpdateSchedule)
 			r.With(auth.RoleMiddleware("coach", "mentor", "admin")).Delete("/{id}", schedH.DeleteSchedule)
+		})
+	})
+
+	// Notification routes (coach/mentor only)
+	r.Route("/notifications", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(ss.Store))
+			r.Use(auth.RoleMiddleware("coach", "mentor"))
+			r.Get("/", notifH.ListNotifications)
+			r.Get("/unread-count", notifH.GetUnreadCount)
+			r.Patch("/read-all", notifH.MarkAllAsRead)
+			r.Patch("/{id}/read", notifH.MarkAsRead)
 		})
 	})
 

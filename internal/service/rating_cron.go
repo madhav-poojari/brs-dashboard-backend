@@ -31,6 +31,9 @@ func StartRatingCrons(s *store.Store) *cron.Cron {
 		log.Println("[RatingCron] Starting weekly Chess.com + Lichess scrape...")
 		RunWeeklyRatingScrape(s)
 		log.Println("[RatingCron] Weekly scrape completed")
+		log.Println("[RatingCron] Checking for new milestones and tournaments...")
+		CheckRatingMilestones(s)
+		CheckTournamentParticipation(s)
 	})
 	if err != nil {
 		log.Printf("[RatingCron] Failed to schedule weekly scrape: %v", err)
@@ -41,6 +44,9 @@ func StartRatingCrons(s *store.Store) *cron.Cron {
 		log.Println("[RatingCron] Starting monthly FIDE scrape...")
 		RunMonthlyFIDEScrape(s)
 		log.Println("[RatingCron] Monthly FIDE scrape completed")
+		log.Println("[RatingCron] Checking for new milestones and tournaments...")
+		CheckRatingMilestones(s)
+		CheckTournamentParticipation(s)
 	})
 	if err != nil {
 		log.Printf("[RatingCron] Failed to schedule monthly scrape: %v", err)
