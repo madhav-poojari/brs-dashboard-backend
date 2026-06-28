@@ -201,3 +201,57 @@ type RatingHistory struct {
 	RecordedAt time.Time `gorm:"not null" json:"recorded_at"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+/* ─────────────── Payouts / Unit Tracking ─────────────── */
+
+type UnitTransactionType string
+
+const (
+	UnitTxTypePayment        UnitTransactionType = "payment"
+	UnitTxTypeClassDeduction UnitTransactionType = "class_deduction"
+	UnitTxTypeReferralBonus  UnitTransactionType = "referral_bonus"
+	UnitTxTypeAdminCredit    UnitTransactionType = "admin_credit"
+	UnitTxTypeAdminDebit     UnitTransactionType = "admin_debit"
+)
+
+type UnitTransactionStatus string
+
+const (
+	UnitTxStatusPending  UnitTransactionStatus = "pending"
+	UnitTxStatusApproved UnitTransactionStatus = "approved"
+	UnitTxStatusRejected UnitTransactionStatus = "rejected"
+)
+
+// UnitBalance tracks the current unit balance for each student.
+// One row per student; updated whenever an approved transaction changes the balance.
+type UnitBalance struct {
+	UserID            string    `gorm:"primaryKey;size:10" json:"user_id"`
+	Balance           float64   `gorm:"default:0" json:"balance"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	LastTransactionID *uint     `json:"last_transaction_id"` // references UnitTransaction.ID
+}
+
+func (UnitBalance) TableName() string { return "unit_balances" }
+
+// UnitTransaction records every credit/debit event.
+// units is signed: positive = credit, negative = deduction.
+type UnitTransaction struct {
+	ID            uint                  `gorm:"primaryKey" json:"id"`
+	UserID        string                `gorm:"index;size:10;not null" json:"user_id"`
+	User          User                  `gorm:"foreignKey:UserID;references:ID" json:"user,omitempty"`
+	Type          UnitTransactionType   `gorm:"type:text;not null" json:"type"`
+	Units         float64               `gorm:"not null" json:"units"`
+	Reason        string                `gorm:"type:text" json:"reason"`
+	ScreenshotURL string                `gorm:"type:text" json:"screenshot_url"`   // R2 suffix_url for payment proof
+	TransactionID string                `gorm:"type:text" json:"transaction_id"`   // user-provided payment reference
+	Status        UnitTransactionStatus `gorm:"type:text;not null;index" json:"status"`
+	ApprovedBy    string                `gorm:"size:10" json:"approved_by"`
+	ApprovedAt    *time.Time            `json:"approved_at"`
+	Details       datatypes.JSONMap     `gorm:"type:jsonb" json:"details"`         // breakdown metadata for cron
+	PeriodYear    int                   `json:"period_year"`                       // billing year (cron only)
+	PeriodMonth   int                   `json:"period_month"`                      // billing month 1-12 (cron only)
+	CreatedBy     string                `gorm:"size:10" json:"created_by"`         // user ID or "system"
+	CreatedAt     time.Time             `json:"created_at"`
+}
+
+func (UnitTransaction) TableName() string { return "unit_transactions" }
