@@ -159,6 +159,7 @@ func (a *API) routes() {
 		adminGroup.Post("/notification-configs", notifConfigH.CreateConfig)
 		adminGroup.Put("/notification-configs/{id}", notifConfigH.UpdateConfig)
 		adminGroup.Delete("/notification-configs/{id}", notifConfigH.DeleteConfig)
+		adminGroup.Post("/trigger-notifications-test", notifH.TriggerNotificationsTest)
 	})
 
 	r.Route("/referral-network", func(r chi.Router) {

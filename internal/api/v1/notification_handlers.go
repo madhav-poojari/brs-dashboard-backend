@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/madhava-poojari/dashboard-api/internal/auth"
+	"github.com/madhava-poojari/dashboard-api/internal/service"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
 	"github.com/madhava-poojari/dashboard-api/internal/utils"
 )
@@ -112,3 +113,15 @@ func (h *NotificationHandler) MarkAllAsRead(w http.ResponseWriter, r *http.Reque
 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "all notifications marked as read", nil, nil)
 }
+
+// TriggerNotificationsTest manually triggers all notification check tasks.
+// POST /admin/trigger-notifications-test
+func (h *NotificationHandler) TriggerNotificationsTest(w http.ResponseWriter, r *http.Request) {
+	// Trigger notification checks synchronously so we can return the result immediately
+	service.CheckJoiningAnniversaries(h.store)
+	service.CheckTournamentParticipation(h.store)
+	service.CheckRatingMilestones(h.store)
+
+	utils.WriteJSONResponse(w, http.StatusOK, true, "notification checks triggered successfully", nil, nil)
+}
+
