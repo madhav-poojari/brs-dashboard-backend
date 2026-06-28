@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/madhava-poojari/dashboard-api/internal/config"
@@ -47,6 +48,8 @@ func NewGormStore(cfg *config.Config) (*Store, error) {
 		&models.ClassSchedule{},
 		&models.ReferralRelationship{},
 		&models.RatingHistory{},
+		&models.Notification{},
+		&models.NotificationConfig{},
 	); err != nil {
 		return nil, err
 	}
@@ -59,7 +62,14 @@ func NewGormStore(cfg *config.Config) (*Store, error) {
 	sqlDB.SetMaxIdleConns(10)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
-	return &Store{DB: db, Cfg: cfg}, nil
+	s := &Store{DB: db, Cfg: cfg}
+
+	// Seed default notification configs
+	if err := s.SeedDefaultNotificationConfigs(context.Background()); err != nil {
+		log.Printf("[Store] Warning: failed to seed notification configs: %v", err)
+	}
+
+	return s, nil
 }
 
 /* ------------------ Relation (relations table) management ------------------ */

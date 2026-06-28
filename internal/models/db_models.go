@@ -201,3 +201,32 @@ type RatingHistory struct {
 	RecordedAt time.Time `gorm:"not null" json:"recorded_at"`
 	CreatedAt  time.Time `json:"created_at"`
 }
+
+// Notification types
+const (
+	NotificationTypeRatingMilestone    = "rating_milestone"
+	NotificationTypeTournamentPlayed   = "tournament_played"
+	NotificationTypeJoiningAnniversary = "joining_anniversary"
+)
+
+type Notification struct {
+	ID        string            `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	UserID    string            `gorm:"size:10;not null;uniqueIndex:idx_notification_dedup" json:"user_id"`
+	Type      string            `gorm:"type:text;not null;index" json:"type"`
+	Title     string            `gorm:"type:text;not null" json:"title"`
+	Message   string            `gorm:"type:text;not null" json:"message"`
+	Metadata  datatypes.JSONMap `gorm:"type:jsonb;default:'{}'" json:"metadata"`
+	DedupKey  string            `gorm:"type:text;not null;uniqueIndex:idx_notification_dedup" json:"-"`
+	IsRead    bool              `gorm:"default:false" json:"is_read"`
+	ReadAt    *time.Time        `json:"read_at"`
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+type NotificationConfig struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Type        string    `gorm:"type:text;not null;index" json:"type"`
+	Key         string    `gorm:"type:text;not null" json:"key"`
+	Value       string    `gorm:"type:text;not null" json:"value"`
+	Description string    `gorm:"type:text" json:"description"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
