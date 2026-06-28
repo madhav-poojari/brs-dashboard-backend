@@ -9,7 +9,6 @@ import (
 	"github.com/madhava-poojari/dashboard-api/internal/models"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
 	"github.com/robfig/cron/v3"
-	"gorm.io/datatypes"
 )
 
 /* ─────────────── Configurable Constants ─────────────── */
@@ -118,9 +117,8 @@ func RunMonthlyPayoutDeduction(s *store.Store) {
 			continue
 		}
 
-		// Calculate total units and build breakdown
+		// Calculate total units and build breakdown in reason
 		totalUnits := 0.0
-		details := make(map[string]interface{})
 		reason := ""
 
 		for _, c := range counts {
@@ -132,7 +130,6 @@ func RunMonthlyPayoutDeduction(s *store.Store) {
 			}
 			classTotal := unitCost * float64(c.Count)
 			totalUnits += classTotal
-			details[c.ClassType] = c.Count
 
 			if reason != "" {
 				reason += ", "
@@ -152,7 +149,6 @@ func RunMonthlyPayoutDeduction(s *store.Store) {
 			Units:       -totalUnits, // negative = deduction
 			Reason:      reason,
 			Status:      models.UnitTxStatusPending,
-			Details:     datatypes.JSONMap(details),
 			PeriodYear:  year,
 			PeriodMonth: month,
 			CreatedBy:   "system",

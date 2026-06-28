@@ -247,7 +247,6 @@ type UnitTransaction struct {
 	Status        UnitTransactionStatus `gorm:"type:text;not null;index" json:"status"`
 	ApprovedBy    string                `gorm:"size:10" json:"approved_by"`
 	ApprovedAt    *time.Time            `json:"approved_at"`
-	Details       datatypes.JSONMap     `gorm:"type:jsonb" json:"details"`         // breakdown metadata for cron
 	PeriodYear    int                   `json:"period_year"`                       // billing year (cron only)
 	PeriodMonth   int                   `json:"period_month"`                      // billing month 1-12 (cron only)
 	CreatedBy     string                `gorm:"size:10" json:"created_by"`         // user ID or "system"
