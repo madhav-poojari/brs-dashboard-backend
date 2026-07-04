@@ -31,6 +31,11 @@ func main() {
 		log.Printf("[Startup] Warning: backfill failed: %v", err)
 	}
 
+	// Run silent notifications backfill for existing historical data
+	if err := service.BackfillHistoricNotifications(pool); err != nil {
+		log.Printf("[Startup] Warning: backfill failed: %v", err)
+	}
+
 	appServer := server.NewServer(cfg, pool)
 
 	srv := appServer.NewHTTPServer()
