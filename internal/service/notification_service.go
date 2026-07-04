@@ -10,6 +10,8 @@ import (
 
 	"github.com/madhava-poojari/dashboard-api/internal/models"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const notificationTimeout = 5 * time.Minute
@@ -359,3 +361,167 @@ func formatDuration(months int) string {
 	}
 	return fmt.Sprintf("%d years and %d months", years, remaining)
 }
+
+// BackfillHistoricNotifications runs on startup to populate dedup_keys for all past events
+// (rating milestones, tournaments, anniversaries) as read notifications.
+// This prevents a notification storm when deploying to a database with existing data.
+func BackfillHistoricNotifications(s *store.Store) error {
+	ctx := context.Background()
+
+	// 1. Transaction Guard: Check if backfill has already run
+	var count int64
+	err := s.DB.WithContext(ctx).
+		Model(&models.NotificationConfig{}).
+		Where("type = ? AND key = ? AND value = ?", "system", "backfill_completed", "true").
+		Count(&count).Error
+	if err != nil {
+		return fmt.Errorf("checking backfill status: %w", err)
+	}
+	if count > 0 {
+		log.Println("[Startup] Silent backfill already completed, skipping.")
+		return nil
+	}
+
+	log.Println("[Startup] Starting historic notifications backfill...")
+
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		var notificationsToInsert []models.Notification
+
+		// --- A. Backfill Rating Milestones ---
+		var milestones []int
+		var milConfig models.NotificationConfig
+		if err := tx.Where("type = ? AND key = ?", models.NotificationTypeRatingMilestone, "milestones").First(&milConfig).Error; err == nil {
+			_ = json.Unmarshal([]byte(milConfig.Value), &milestones)
+		}
+		sort.Ints(milestones)
+
+		type StudentMaxRating struct {
+			UserID    string
+			Platform  string
+			MaxRating int
+		}
+		var maxRatings []StudentMaxRating
+		if err := tx.Model(&models.RatingHistory{}).
+			Select("user_id, platform, MAX(rating) as max_rating").
+			Group("user_id, platform").
+			Scan(&maxRatings).Error; err == nil {
+
+			for _, mr := range maxRatings {
+				var rel models.Relation
+				if err := tx.Where("user_id = ?", mr.UserID).First(&rel).Error; err == nil {
+					recipients := collectRecipients(rel.CoachID, rel.MentorID)
+					for _, milestone := range milestones {
+						if mr.MaxRating >= milestone {
+							dedupKey := fmt.Sprintf("rm:%s:%s:%d", mr.UserID, mr.Platform, milestone)
+							for _, recipientID := range recipients {
+								notificationsToInsert = append(notificationsToInsert, models.Notification{
+									UserID:    recipientID,
+									Type:      models.NotificationTypeRatingMilestone,
+									Title:     "Historical Backfill",
+									Message:   "Silent milestone backfill",
+									Metadata:  map[string]interface{}{"milestone": milestone},
+									DedupKey:  dedupKey,
+									IsRead:    true,
+									ReadAt:    &now,
+									CreatedAt: now,
+								})
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// --- B. Backfill Tournaments ---
+		var ratingRecords []models.RatingHistory
+		if err := tx.Where("platform IN ?", []string{"uscf", "fide"}).Find(&ratingRecords).Error; err == nil {
+			for _, rec := range ratingRecords {
+				var rel models.Relation
+				if err := tx.Where("user_id = ?", rec.UserID).First(&rel).Error; err == nil {
+					recipients := collectRecipients(rel.CoachID, rel.MentorID)
+					dateStr := rec.RecordedAt.Format("2006-01-02")
+					dedupKey := fmt.Sprintf("tp:%s:%s:%s", rec.UserID, rec.Platform, dateStr)
+					for _, recipientID := range recipients {
+						notificationsToInsert = append(notificationsToInsert, models.Notification{
+							UserID:    recipientID,
+							Type:      models.NotificationTypeTournamentPlayed,
+							Title:     "Historical Backfill",
+							Message:   "Silent tournament backfill",
+							Metadata:  map[string]interface{}{"platform": rec.Platform},
+							DedupKey:  dedupKey,
+							IsRead:    true,
+							ReadAt:    &now,
+							CreatedAt: now,
+						})
+					}
+				}
+			}
+		}
+
+		// --- C. Backfill Coach/Mentor Anniversaries ---
+		var months []int
+		var annConfig models.NotificationConfig
+		if err := tx.Where("type = ? AND key = ?", models.NotificationTypeJoiningAnniversary, "milestones_months").First(&annConfig).Error; err == nil {
+			_ = json.Unmarshal([]byte(annConfig.Value), &months)
+		}
+		sort.Ints(months)
+
+		var users []models.User
+		if err := tx.Where("role IN ? AND active = ? AND approved = ?", []string{string(models.RoleCoach), string(models.RoleMentor)}, true, true).Find(&users).Error; err == nil {
+			for _, u := range users {
+				elapsed := monthsBetween(u.CreatedAt, now)
+				for _, m := range months {
+					if elapsed >= m {
+						dedupKey := fmt.Sprintf("ja:%s:%d", u.ID, m)
+						notificationsToInsert = append(notificationsToInsert, models.Notification{
+							UserID:    u.ID,
+							Type:      models.NotificationTypeJoiningAnniversary,
+							Title:     "Historical Backfill",
+							Message:   "Silent anniversary backfill",
+							Metadata:  map[string]interface{}{"months": m},
+							DedupKey:  dedupKey,
+							IsRead:    true,
+							ReadAt:    &now,
+							CreatedAt: now,
+						})
+					}
+				}
+			}
+		}
+
+		// Insert notifications in batches of 100 with ON CONFLICT DO NOTHING
+		if len(notificationsToInsert) > 0 {
+			err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "user_id"}, {Name: "dedup_key"}},
+				DoNothing: true,
+			}).CreateInBatches(notificationsToInsert, 100).Error
+			if err != nil {
+				return fmt.Errorf("inserting backfill notifications: %w", err)
+			}
+			log.Printf("[Startup] Successfully backfilled %d historical notifications.", len(notificationsToInsert))
+		}
+
+		// Save completion marker config
+		marker := models.NotificationConfig{
+			Type:        "system",
+			Key:         "backfill_completed",
+			Value:       "true",
+			Description: "Flags whether the startup silent notifications backfill has finished",
+			UpdatedAt:   now,
+		}
+		if err := tx.Create(&marker).Error; err != nil {
+			return fmt.Errorf("saving completion marker config: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("transaction execution: %w", err)
+	}
+
+	log.Println("[Startup] Historic notifications backfill complete.")
+	return nil
+}
+
