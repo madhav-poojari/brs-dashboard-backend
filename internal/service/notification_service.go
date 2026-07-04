@@ -388,6 +388,16 @@ func BackfillHistoricNotifications(s *store.Store) error {
 		now := time.Now()
 		var notificationsToInsert []models.Notification
 
+		// Get name map for proper notification messages
+		var allUsers []models.User
+		if err := tx.Select("id, first_name, last_name").Find(&allUsers).Error; err != nil {
+			return fmt.Errorf("getting user names: %w", err)
+		}
+		nameMap := make(map[string]string, len(allUsers))
+		for _, u := range allUsers {
+			nameMap[u.ID] = u.FirstName + " " + u.LastName
+		}
+
 		// --- A. Backfill Rating Milestones ---
 		var milestones []int
 		var milConfig models.NotificationConfig
@@ -415,12 +425,19 @@ func BackfillHistoricNotifications(s *store.Store) error {
 						if mr.MaxRating >= milestone {
 							dedupKey := fmt.Sprintf("rm:%s:%s:%d", mr.UserID, mr.Platform, milestone)
 							for _, recipientID := range recipients {
+								studentName := nameMap[mr.UserID]
 								notificationsToInsert = append(notificationsToInsert, models.Notification{
-									UserID:    recipientID,
-									Type:      models.NotificationTypeRatingMilestone,
-									Title:     "Historical Backfill",
-									Message:   "Silent milestone backfill",
-									Metadata:  map[string]interface{}{"milestone": milestone},
+									UserID:  recipientID,
+									Type:    models.NotificationTypeRatingMilestone,
+									Title:   "Rating Milestone! 🏆",
+									Message: fmt.Sprintf("%s reached %d on %s!", studentName, milestone, platformDisplayName(mr.Platform)),
+									Metadata: map[string]interface{}{
+										"student_id":   mr.UserID,
+										"student_name": studentName,
+										"platform":     mr.Platform,
+										"milestone":    milestone,
+										"rating":       mr.MaxRating,
+									},
 									DedupKey:  dedupKey,
 									IsRead:    true,
 									ReadAt:    &now,
@@ -434,26 +451,42 @@ func BackfillHistoricNotifications(s *store.Store) error {
 		}
 
 		// --- B. Backfill Tournaments ---
-		var ratingRecords []models.RatingHistory
-		if err := tx.Where("platform IN ?", []string{"uscf", "fide"}).Find(&ratingRecords).Error; err == nil {
-			for _, rec := range ratingRecords {
-				var rel models.Relation
-				if err := tx.Where("user_id = ?", rec.UserID).First(&rel).Error; err == nil {
-					recipients := collectRecipients(rel.CoachID, rel.MentorID)
-					dateStr := rec.RecordedAt.Format("2006-01-02")
-					dedupKey := fmt.Sprintf("tp:%s:%s:%s", rec.UserID, rec.Platform, dateStr)
-					for _, recipientID := range recipients {
-						notificationsToInsert = append(notificationsToInsert, models.Notification{
-							UserID:    recipientID,
-							Type:      models.NotificationTypeTournamentPlayed,
-							Title:     "Historical Backfill",
-							Message:   "Silent tournament backfill",
-							Metadata:  map[string]interface{}{"platform": rec.Platform},
-							DedupKey:  dedupKey,
-							IsRead:    true,
-							ReadAt:    &now,
-							CreatedAt: now,
-						})
+		var tournamentPlatforms []string
+		var tpConfig models.NotificationConfig
+		if err := tx.Where("type = ? AND key = ?", models.NotificationTypeTournamentPlayed, "enabled_platforms").First(&tpConfig).Error; err == nil {
+			_ = json.Unmarshal([]byte(tpConfig.Value), &tournamentPlatforms)
+		}
+
+		if len(tournamentPlatforms) > 0 {
+			var ratingRecords []models.RatingHistory
+			if err := tx.Where("platform IN ?", tournamentPlatforms).Find(&ratingRecords).Error; err == nil {
+				for _, rec := range ratingRecords {
+					var rel models.Relation
+					if err := tx.Where("user_id = ?", rec.UserID).First(&rel).Error; err == nil {
+						recipients := collectRecipients(rel.CoachID, rel.MentorID)
+						dateStr := rec.RecordedAt.Format("2006-01-02")
+						dedupKey := fmt.Sprintf("tp:%s:%s:%s", rec.UserID, rec.Platform, dateStr)
+						studentName := nameMap[rec.UserID]
+						platformName := platformDisplayName(rec.Platform)
+						for _, recipientID := range recipients {
+							notificationsToInsert = append(notificationsToInsert, models.Notification{
+								UserID:  recipientID,
+								Type:    models.NotificationTypeTournamentPlayed,
+								Title:   "Tournament Played ♟️",
+								Message: fmt.Sprintf("%s played a %s tournament on %s", studentName, platformName, rec.RecordedAt.Format("Jan 2, 2006")),
+								Metadata: map[string]interface{}{
+									"student_id":      rec.UserID,
+									"student_name":    studentName,
+									"platform":        rec.Platform,
+									"tournament_date": dateStr,
+									"rating":          rec.Rating,
+								},
+								DedupKey:  dedupKey,
+								IsRead:    true,
+								ReadAt:    &now,
+								CreatedAt: now,
+							})
+						}
 					}
 				}
 			}
@@ -477,8 +510,8 @@ func BackfillHistoricNotifications(s *store.Store) error {
 						notificationsToInsert = append(notificationsToInsert, models.Notification{
 							UserID:    u.ID,
 							Type:      models.NotificationTypeJoiningAnniversary,
-							Title:     "Historical Backfill",
-							Message:   "Silent anniversary backfill",
+							Title:     "Joining Anniversary! 🎉",
+							Message:   fmt.Sprintf("Congratulations! You've been with BRS Chess Academy for %s!", formatDuration(m)),
 							Metadata:  map[string]interface{}{"months": m},
 							DedupKey:  dedupKey,
 							IsRead:    true,
