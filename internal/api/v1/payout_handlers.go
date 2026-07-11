@@ -124,6 +124,7 @@ func (h *PayoutHandler) ListBalances(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /payouts/adjust — Admin direct add/deduct units for any student (admin only)
+// Accepts multipart form: user_id, units, reason, type fields + optional screenshot file
 func (h *PayoutHandler) AdminAdjust(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	current := auth.GetUserFromCtx(ctx)
@@ -132,28 +133,30 @@ func (h *PayoutHandler) AdminAdjust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		UserID string  `json:"user_id"`
-		Units  float64 `json:"units"`
-		Reason string  `json:"reason"`
-		Type   string  `json:"type"` // referral_bonus, admin_credit, admin_debit
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request", nil, err.Error())
+	// Parse multipart form (max 5MB)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid form data", nil, err.Error())
 		return
 	}
 
-	if req.UserID == "" {
+	userID := r.FormValue("user_id")
+	unitsStr := r.FormValue("units")
+	reason := r.FormValue("reason")
+	txTypeStr := r.FormValue("type")
+
+	if userID == "" {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "user_id is required", nil, nil)
 		return
 	}
-	if req.Units == 0 {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "units must be non-zero", nil, nil)
+
+	units, err := strconv.ParseFloat(unitsStr, 64)
+	if err != nil || units == 0 {
+		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "units must be a non-zero number", nil, nil)
 		return
 	}
 
 	// Determine transaction type
-	txType := models.UnitTransactionType(req.Type)
+	txType := models.UnitTransactionType(txTypeStr)
 	switch txType {
 	case models.UnitTxTypeReferralBonus, models.UnitTxTypeAdminCredit, models.UnitTxTypeAdminDebit:
 		// valid
@@ -163,14 +166,13 @@ func (h *PayoutHandler) AdminAdjust(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Enforce max adjustment units cap (prevents accidental large entries)
-	if math.Abs(req.Units) > service.MaxAdjustmentUnits {
+	if math.Abs(units) > service.MaxAdjustmentUnits {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false,
 			fmt.Sprintf("units cannot exceed %.1f for bonus/adjustment", service.MaxAdjustmentUnits), nil, nil)
 		return
 	}
 
 	// For admin_debit, units should be negative
-	units := req.Units
 	if txType == models.UnitTxTypeAdminDebit && units > 0 {
 		units = -units
 	}
@@ -179,7 +181,21 @@ func (h *PayoutHandler) AdminAdjust(w http.ResponseWriter, r *http.Request) {
 		units = -units
 	}
 
-	tx, err := h.store.AdminDirectAdjustment(ctx, req.UserID, units, req.Reason, txType, current.ID)
+	// Handle optional screenshot upload
+	var screenshotSuffix string
+	file, header, fileErr := r.FormFile("screenshot")
+	if fileErr == nil {
+		defer file.Close()
+		subDir := fmt.Sprintf("payment-screenshots/%s", userID)
+		suffix, uploadErr := h.imageStorage.SaveFile(subDir, header.Filename, file)
+		if uploadErr != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to upload screenshot", nil, uploadErr.Error())
+			return
+		}
+		screenshotSuffix = suffix
+	}
+
+	tx, err := h.store.AdminDirectAdjustment(ctx, userID, units, reason, txType, current.ID, screenshotSuffix)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to adjust units", nil, err.Error())
 		return
@@ -234,73 +250,4 @@ func (h *PayoutHandler) TriggerDeduction(w http.ResponseWriter, r *http.Request)
 	go service.RunMonthlyPayoutDeduction(h.store)
 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "deduction triggered in background", nil, nil)
-}
-
-// POST /payouts/payment-request — Student submits a payment request (student + admin)
-// Accepts multipart form: screenshot file + transaction_id field
-func (h *PayoutHandler) SubmitPaymentRequest(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	current := auth.GetUserFromCtx(ctx)
-	if current == nil {
-		utils.WriteJSONResponse(w, http.StatusUnauthorized, false, "unauthorized", nil, nil)
-		return
-	}
-
-	// Parse multipart form (max 5MB)
-	if err := r.ParseMultipartForm(5 << 20); err != nil {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "file too large or invalid form", nil, err.Error())
-		return
-	}
-
-	transactionID := r.FormValue("transaction_id")
-
-	// Screenshot is optional on backend (required on frontend)
-	var screenshotSuffix string
-	file, header, err := r.FormFile("screenshot")
-	if err == nil {
-		defer file.Close()
-		subDir := fmt.Sprintf("payment-screenshots/%s", current.ID)
-		suffix, uploadErr := h.imageStorage.SaveFile(subDir, header.Filename, file)
-		if uploadErr != nil {
-			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to upload screenshot", nil, uploadErr.Error())
-			return
-		}
-		screenshotSuffix = suffix
-	}
-	// If no file provided, screenshotSuffix stays empty — that's fine per BE requirements
-
-	tx := &models.UnitTransaction{
-		UserID:        current.ID,
-		Type:          models.UnitTxTypePayment,
-		Units:         0, // admin will set the actual units when approving; or we can accept from form
-		Reason:        "Payment submitted",
-		ScreenshotURL: screenshotSuffix,
-		TransactionID: transactionID,
-		Status:        models.UnitTxStatusPending,
-		CreatedBy:     current.ID,
-	}
-
-	// Optionally accept units from form (admin may want to pre-fill)
-	unitsStr := r.FormValue("units")
-	if unitsStr != "" {
-		if u, err := strconv.ParseFloat(unitsStr, 64); err == nil && u > 0 {
-			tx.Units = u
-		}
-	}
-
-	// Optionally accept reason from form
-	reason := r.FormValue("reason")
-	if reason != "" {
-		tx.Reason = reason
-	}
-
-	if err := h.store.CreateUnitTransaction(ctx, tx); err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to create payment request", nil, err.Error())
-		return
-	}
-
-	utils.WriteJSONResponse(w, http.StatusCreated, true, "payment request submitted", map[string]interface{}{
-		"id":             tx.ID,
-		"screenshot_url": screenshotSuffix,
-	}, nil)
 }

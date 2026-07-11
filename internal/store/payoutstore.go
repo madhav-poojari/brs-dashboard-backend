@@ -143,20 +143,22 @@ func (s *Store) RejectTransaction(ctx context.Context, txID uint, adminID string
 }
 
 // AdminDirectAdjustment creates an auto-approved transaction and updates the balance atomically.
-func (s *Store) AdminDirectAdjustment(ctx context.Context, userID string, units float64, reason string, txType models.UnitTransactionType, adminID string) (*models.UnitTransaction, error) {
+// screenshotURL is optional — pass "" if no screenshot is attached.
+func (s *Store) AdminDirectAdjustment(ctx context.Context, userID string, units float64, reason string, txType models.UnitTransactionType, adminID string, screenshotURL string) (*models.UnitTransaction, error) {
 	var created models.UnitTransaction
 	err := s.DB.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		now := time.Now()
 		created = models.UnitTransaction{
-			UserID:    userID,
-			Type:      txType,
-			Units:     units,
-			Reason:    reason,
-			Status:    models.UnitTxStatusApproved,
-			ApprovedBy: adminID,
-			ApprovedAt: &now,
-			CreatedBy: adminID,
-			CreatedAt: now,
+			UserID:        userID,
+			Type:          txType,
+			Units:         units,
+			Reason:        reason,
+			ScreenshotURL: screenshotURL,
+			Status:        models.UnitTxStatusApproved,
+			ApprovedBy:    adminID,
+			ApprovedAt:    &now,
+			CreatedBy:     adminID,
+			CreatedAt:     now,
 		}
 		if err := db.Create(&created).Error; err != nil {
 			return err

@@ -214,14 +214,10 @@ func (a *API) routes() {
 		})
 	})
 
-	// Payout routes (unit tracking)
+	// Payout routes (unit tracking — admin only)
 	payoutH := NewPayoutHandler(ss, a.cfg)
 	r.Route("/payouts", func(r chi.Router) {
 		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
-
-		// Student (any authenticated user) can submit payment requests
-		r.With(auth.AuthMiddleware(a.store)).
-			Post("/payment-request", payoutH.SubmitPaymentRequest)
 
 		// Admin-only routes
 		adminGroup := r.With(auth.AuthMiddleware(a.store)).With(auth.RoleMiddleware("admin"))
