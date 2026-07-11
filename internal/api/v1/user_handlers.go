@@ -319,7 +319,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// coach or mentor (or both) -> single DB query with OR
-	users, err := h.store.ListStudentsForCoachOrMentor(ctx, current.ID)
+	users, err := h.store.ListStudentsWithRelations(ctx, current.ID)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching students", nil, err.Error())
 		return
