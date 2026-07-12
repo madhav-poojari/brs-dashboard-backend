@@ -253,4 +253,27 @@ func (a *API) routes() {
 		adminGroup.Post("/trigger-deduction", payoutH.TriggerDeduction)
 	})
 
+	// Blog routes (all authenticated roles)
+	blogH := NewBlogHandler(ss, a.cfg)
+	r.Route("/blogs", func(r chi.Router) {
+		r.Options("/*", func(w http.ResponseWriter, r *http.Request) {})
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(ss.Store))
+			r.Post("/", blogH.CreateBlog)
+			r.Get("/", blogH.ListBlogs)
+			r.Get("/my-drafts", blogH.ListMyDrafts)
+			r.Get("/tags", blogH.ListTags)
+			r.Get("/{slug}", blogH.GetBlog)
+			r.Patch("/{id}", blogH.UpdateBlog)
+			r.Delete("/{id}", blogH.DeleteBlog)
+			// Blog images
+			r.Post("/{id}/images", blogH.UploadBlogImage)
+			r.Get("/{id}/images", blogH.ListBlogImages)
+			r.Delete("/{id}/images/{imageId}", blogH.DeleteBlogImage)
+			// Cover image
+			r.Post("/{id}/cover", blogH.UploadCoverImage)
+			r.Delete("/{id}/cover", blogH.DeleteCoverImage)
+		})
+	})
+
 }
