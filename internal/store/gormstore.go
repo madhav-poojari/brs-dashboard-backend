@@ -47,6 +47,8 @@ func NewGormStore(cfg *config.Config) (*Store, error) {
 		&models.ClassSchedule{},
 		&models.ReferralRelationship{},
 		&models.RatingHistory{},
+		&models.UnitBalance{},
+		&models.UnitTransaction{},
 	); err != nil {
 		return nil, err
 	}

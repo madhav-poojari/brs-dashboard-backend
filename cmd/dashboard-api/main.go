@@ -33,6 +33,9 @@ func main() {
 	// Start rating cron scheduler (returns instance for graceful shutdown)
 	cronScheduler := service.StartRatingCrons(pool)
 
+	// Start payout cron scheduler (monthly unit deductions)
+	payoutCron := service.StartPayoutCron(pool)
+
 	// graceful shutdown
 	go func() {
 		log.Printf("listening on %s", cfg.BindAddr)
@@ -55,6 +58,15 @@ func main() {
 		log.Println("Cron jobs finished gracefully")
 	case <-time.After(11 * time.Minute):
 		log.Println("Cron jobs did not finish in time, forcing shutdown")
+	}
+
+	// Stop payout cron scheduler
+	payoutCronCtx := payoutCron.Stop()
+	select {
+	case <-payoutCronCtx.Done():
+		log.Println("Payout cron jobs finished gracefully")
+	case <-time.After(2 * time.Minute):
+		log.Println("Payout cron jobs did not finish in time, forcing shutdown")
 	}
 
 	// Shutdown HTTP server
