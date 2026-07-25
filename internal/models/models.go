@@ -22,6 +22,16 @@ type UserResponse struct {
 	Schedule []*ClassSchedule `json:"schedule,omitempty"`
 }
 
+// StudentWithRelations wraps a User with their assigned coach/mentor info.
+// Used by the GET /users/ endpoint so coach/mentor callers can group students.
+type StudentWithRelations struct {
+	*User
+	CoachID    string `json:"coach_id,omitempty"`
+	CoachName  string `json:"coach_name,omitempty"`
+	MentorID   string `json:"mentor_id,omitempty"`
+	MentorName string `json:"mentor_name,omitempty"`
+}
+
 type Role string
 
 const (
