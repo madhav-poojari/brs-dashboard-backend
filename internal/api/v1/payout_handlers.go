@@ -3,7 +3,6 @@ package v1
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"strconv"
 
@@ -162,13 +161,6 @@ func (h *PayoutHandler) AdminAdjust(w http.ResponseWriter, r *http.Request) {
 		// valid
 	default:
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid type, must be referral_bonus, admin_credit, or admin_debit", nil, nil)
-		return
-	}
-
-	// Enforce max adjustment units cap (prevents accidental large entries)
-	if math.Abs(units) > service.MaxAdjustmentUnits {
-		utils.WriteJSONResponse(w, http.StatusBadRequest, false,
-			fmt.Sprintf("units cannot exceed %.1f for bonus/adjustment", service.MaxAdjustmentUnits), nil, nil)
 		return
 	}
 

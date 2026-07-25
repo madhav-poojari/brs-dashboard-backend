@@ -25,10 +25,6 @@ const (
 	DualClassUnits         = 0.5
 	SubstitutionClassUnits = 0.75
 
-	// MaxAdjustmentUnits is the max units an admin can add in a single bonus/adjustment.
-	// This prevents accidental large credit entries.
-	MaxAdjustmentUnits = 3.0
-
 	// Timeout for the entire monthly payout deduction run.
 	payoutCronTimeout = 10 * time.Minute
 )
