@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -162,4 +163,68 @@ func (s *Store) CanAccessNoteForRequester(ctx context.Context, requester *models
 	default:
 		return false
 	}
+}
+
+// StudentNoteSummary is a lightweight summary for the students-page cards.
+type StudentNoteSummary struct {
+	LessonPlanTitle string   `json:"lesson_plan_title,omitempty"`
+	LessonPlanDesc  []string `json:"lesson_plan_description,omitempty"`
+	LatestNoteTitle string   `json:"latest_note_title,omitempty"`
+}
+
+// GetBulkNotesSummary returns a map of studentID -> summary containing
+// the active lesson-plan title/description and the latest visible note title.
+// minVisibility controls which notes are considered (1=all, 2=mentor+, 3=coach+).
+// Uses 2 DB queries regardless of student count.
+func (s *Store) GetBulkNotesSummary(ctx context.Context, studentIDs []string, minVisibility int) (map[string]*StudentNoteSummary, error) {
+	result := make(map[string]*StudentNoteSummary, len(studentIDs))
+	if len(studentIDs) == 0 {
+		return result, nil
+	}
+
+	// 1. Active lesson plans for all students (one query)
+	var lessonPlans []models.LessonPlan
+	if err := s.DB.WithContext(ctx).
+		Where("user_id IN ? AND active = true", studentIDs).
+		Find(&lessonPlans).Error; err != nil {
+		return nil, err
+	}
+	for i := range lessonPlans {
+		lp := &lessonPlans[i]
+		summary := &StudentNoteSummary{
+			LessonPlanTitle: lp.Title,
+		}
+		// Parse the JSON description array
+		var desc []string
+		if err := json.Unmarshal([]byte(lp.Description), &desc); err == nil {
+			summary.LessonPlanDesc = desc
+		}
+		result[lp.UserID] = summary
+	}
+
+	// 2. Latest visible note per student (one query using Postgres DISTINCT ON)
+	type latestNote struct {
+		UserID string `gorm:"column:user_id"`
+		Title  string `gorm:"column:title"`
+	}
+	var notes []latestNote
+	if err := s.DB.WithContext(ctx).
+		Raw(`SELECT DISTINCT ON (user_id) user_id, title
+			 FROM notes
+			 WHERE user_id IN ?
+			   AND deleted_at IS NULL
+			   AND visibility >= ?
+			 ORDER BY user_id, created_at DESC`,
+			studentIDs, minVisibility).
+		Scan(&notes).Error; err != nil {
+		return nil, err
+	}
+	for _, n := range notes {
+		if _, ok := result[n.UserID]; !ok {
+			result[n.UserID] = &StudentNoteSummary{}
+		}
+		result[n.UserID].LatestNoteTitle = n.Title
+	}
+
+	return result, nil
 }
