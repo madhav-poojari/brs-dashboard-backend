@@ -191,6 +191,9 @@ func (h *BlogHandler) GetBlog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Populate the can_edit field for the frontend
+	blog.CanEdit = h.store.CanEditBlog(ctx, current, blog)
+
 	utils.WriteJSONResponse(w, http.StatusOK, true, "success", blog, nil)
 }
 
