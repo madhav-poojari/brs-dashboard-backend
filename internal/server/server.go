@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	v1 "github.com/madhava-poojari/dashboard-api/internal/api/v1"
+	"github.com/madhava-poojari/dashboard-api/internal/cache"
 	"github.com/madhava-poojari/dashboard-api/internal/config"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
 )
@@ -14,10 +15,11 @@ import (
 type Server struct {
 	cfg *config.Config
 	db  *store.Store
+	rc cache.Client
 }
 
-func NewServer(cfg *config.Config, pool *store.Store) *Server {
-	return &Server{cfg: cfg, db: pool}
+func NewServer(cfg *config.Config, pool *store.Store, rc cache.Client) *Server {
+	return &Server{cfg: cfg, db: pool, rc: rc}
 }
 
 func (s *Server) NewHTTPServer() *http.Server {
@@ -38,7 +40,8 @@ func (s *Server) NewHTTPServer() *http.Server {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
-	api := v1.NewAPI(s.cfg, s.db)
+	
+	api := v1.NewAPI(s.cfg, s.db, s.rc)
 	r.Mount("/api/v1", api.Routes())
 
 	srv := &http.Server{

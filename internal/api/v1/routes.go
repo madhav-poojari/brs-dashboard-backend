@@ -8,6 +8,7 @@ import (
 
 	// "github.com/go-chi/cors"
 	"github.com/madhava-poojari/dashboard-api/internal/auth"
+	"github.com/madhava-poojari/dashboard-api/internal/cache"
 	"github.com/madhava-poojari/dashboard-api/internal/config"
 	"github.com/madhava-poojari/dashboard-api/internal/service"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
@@ -21,10 +22,11 @@ type API struct {
 	cfg    *config.Config
 	router *chi.Mux
 	store  *store.Store
+	rc cache.Client
 }
 
-func NewAPI(cfg *config.Config, s *store.Store) *API {
-	api := &API{cfg: cfg, router: chi.NewRouter(), store: s}
+func NewAPI(cfg *config.Config, s *store.Store, rc cache.Client) *API {
+	api := &API{cfg: cfg, router: chi.NewRouter(), store: s, rc: rc}
 	api.router.Use(middleware.Logger)
 	// Use cors.Handler (not middleware.CORS)
 	// api.router.Use(cors.Handler(cors.Options{
@@ -51,11 +53,11 @@ func (a *API) Routes() *chi.Mux {
 }
 
 func (a *API) routes() {
-	usvc := service.NewUserService(a.store)
+	usvc := service.NewUserService(a.store, a.rc)
 	ss := serviceStore{a.store}
 
 	authH := NewAuthHandler(a.cfg, usvc, ss)
-	userH := NewUserHandler(ss)
+	userH := NewUserHandler(ss, usvc)
 	adminH := NewAdminHandler(ss)
 	notesH := NewNotesHandler(ss)
 	attH := NewAttendanceHandler(ss)

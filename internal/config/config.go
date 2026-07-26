@@ -25,6 +25,7 @@ type Config struct {
 	R2Endpoint         string
 	R2BucketName       string
 	ScraperAPIKey      string
+	RedisURL           string
 }
 
 func Load() (*Config, error) {
@@ -32,7 +33,9 @@ func Load() (*Config, error) {
 
 	bind := getEnv("BIND_ADDR", ":8080")
 	db := getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/dashboard?sslmode=disable")
-	
+
+	redisUrl := getEnv("REDIS_URL", "redis://localhost:6379")
+
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		return nil, fmt.Errorf("JWT_SECRET is required")
@@ -60,6 +63,7 @@ func Load() (*Config, error) {
 		R2Endpoint:         os.Getenv("R2_ENDPOINT"),
 		R2BucketName:       os.Getenv("R2_BUCKET_NAME"),
 		ScraperAPIKey:      os.Getenv("SCRAPER_API_KEY"),
+		RedisURL: redisUrl,
 	}, nil
 }
 

@@ -12,16 +12,23 @@ services:
       - "5432:5432"
   
   redis:
-    image: redis:latest
+    image: redis:7-alpine
+    container_name: redis
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks: 
+      - app-network
 
 volumes:
   db-data:
   redis-data:
+
+networks:
+  app-network:
+    driver: bridge
 
 # services:
 #   db:

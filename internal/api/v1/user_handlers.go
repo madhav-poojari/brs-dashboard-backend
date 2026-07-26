@@ -3,24 +3,29 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/madhava-poojari/dashboard-api/internal/apperrors"
 	"github.com/madhava-poojari/dashboard-api/internal/auth"
 	"github.com/madhava-poojari/dashboard-api/internal/models"
+	"github.com/madhava-poojari/dashboard-api/internal/service"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
 	"github.com/madhava-poojari/dashboard-api/internal/utils"
 )
 
 type UserHandler struct {
 	store serviceStore
+	user *service.UserService
 }
 
-func NewUserHandler(store serviceStore) *UserHandler {
+func NewUserHandler(store serviceStore, user *service.UserService) *UserHandler {
 	return &UserHandler{
 		store: store,
+		user: user,
 	}
 }
 
@@ -56,13 +61,13 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	var coachInfo *models.PersonInfo
 	var mentorInfo *models.PersonInfo
 
-	mentorInfo, err = h.getPersonInfoByID(ctx, mentorId)
+	mentorInfo, err = h.user.GetPersonInfoByID(ctx, mentorId)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch mentor", nil, nil)
 		return
 	}
 
-	coachInfo, err = h.getPersonInfoByID(ctx, coachId)
+	coachInfo, err = h.user.GetPersonInfoByID(ctx, coachId)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch coach", nil, nil)
 		return
@@ -95,44 +100,10 @@ func (h *UserHandler) GetSelfProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.store.GetUserByID(ctx, current.ID)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusNotFound, false, "not found", nil, nil)
-		return
+	resp, err := h.user.GetSelfProfile(ctx, current.ID)
+	if(err!=nil){
+		utils.WriteJSONResponse(w, http.StatusNotFound, false, "cannot find user", nil, err.Error())
 	}
-
-	var coachInfo *models.PersonInfo
-	var mentorInfo *models.PersonInfo
-
-	// fetch assigned coach & mentor
-	coachId, mentorId, _ := h.store.GetCoachesByStudentID(ctx, current.ID)
-
-	mentorInfo, err = h.getPersonInfoByID(ctx, mentorId)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch mentor", nil, nil)
-		return
-	}
-
-	coachInfo, err = h.getPersonInfoByID(ctx, coachId)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to fetch coach", nil, nil)
-		return
-	}
-
-	resp := models.UserResponse{
-		User:   u,
-		Coach:  coachInfo,
-		Mentor: mentorInfo,
-	}
-
-	// Embed schedule for student profiles
-	if u.Role == models.RoleStudent {
-		schedule, err := h.store.ListSchedulesForStudents(ctx, []string{u.ID})
-		if err == nil {
-			resp.Schedule = schedule
-		}
-	}
-
 	utils.WriteJSONResponse(w, http.StatusOK, true, "success", resp, nil)
 }
 
@@ -303,26 +274,13 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if current.Role == "admin" {
-		users, err := h.store.ListUsersAdmin(ctx)
-		if err != nil {
-			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error", nil, err.Error())
-			return
+	users, err := h.user.ListUsers(ctx, current.Role, current.ID)
+	if(err!=nil){
+		var appErr *apperrors.AppError
+		if(errors.As(err, &appErr)){
+			utils.WriteJSONResponse(w, appErr.Code, false, appErr.Message, nil, err)
 		}
-		utils.WriteJSONResponse(w, http.StatusOK, true, "success", users, nil)
-		return
-	}
-
-	if current.Role == "student" {
-		utils.WriteJSONResponse(w, http.StatusForbidden, false, "forbidden", nil, nil)
-		return
-	}
-
-	// coach or mentor (or both) -> single DB query with OR
-	users, err := h.store.ListStudentsForCoachOrMentor(ctx, current.ID)
-	if err != nil {
-		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching students", nil, err.Error())
-		return
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, err.Error(), nil, err)
 	}
 	utils.WriteJSONResponse(w, http.StatusOK, true, "success", users, nil)
 }
@@ -453,33 +411,6 @@ func CanAccessStudentData(ctx context.Context, s *store.Store, current *models.U
 	}
 	coachID, mentorID, _ := s.GetCoachesByStudentID(ctx, targetID)
 	return current.ID == coachID || current.ID == mentorID
-}
-
-func (h *UserHandler) getPersonInfoByID(
-	ctx context.Context,
-	id string,
-) (*models.PersonInfo, error) {
-
-	if id == "" {
-		return nil, nil
-	}
-
-	user, err := h.store.GetUserByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	if user == nil {
-		return nil, nil
-	}
-
-	return &models.PersonInfo{
-		Name:              user.FirstName + " " + user.LastName,
-		ProfilePictureURL: user.UserDetails.ProfilePictureURL,
-		FIDEID:            user.UserDetails.FIDEID,
-		Bio:               user.UserDetails.Bio,
-		PersonalMeetLink:  user.UserDetails.PersonalMeetLink,
-	}, nil
 }
 
 // GET /users/coaches - returns coaches/mentors for the attendance coach-overview dropdown.

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/madhava-poojari/dashboard-api/internal/cache"
 	"github.com/madhava-poojari/dashboard-api/internal/config"
 	"github.com/madhava-poojari/dashboard-api/internal/server"
 	"github.com/madhava-poojari/dashboard-api/internal/service"
@@ -26,7 +27,12 @@ func main() {
 	}
 	defer pool.Close()
 
-	appServer := server.NewServer(cfg, pool)
+	redisClient, err := cache.NewRedisClient(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("redis connect: %v", err)
+	}
+
+	appServer := server.NewServer(cfg, pool, redisClient)
 
 	srv := appServer.NewHTTPServer()
 
