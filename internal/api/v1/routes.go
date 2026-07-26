@@ -81,6 +81,7 @@ func (a *API) routes() {
 			r.Post("/", notesH.CreateNote)
 			r.Post("/lesson-plans", notesH.CreateLessonPlan)
 			r.Patch("/lesson-plans/{id}", notesH.UpdateLessonPlan)
+			r.Get("/bulk-summary", notesH.GetBulkNotesSummary)
 			r.Get("/", notesH.GetNotesByUser)
 			r.Patch("/{id}", notesH.UpdateNote)
 			r.Delete("/{id}", notesH.DeleteNote)

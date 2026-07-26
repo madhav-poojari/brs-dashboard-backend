@@ -98,6 +98,57 @@ func (s *Store) ListStudentsForCoachOrMentor(ctx context.Context, userID string)
 	return out, nil
 }
 
+// ListStudentsWithRelations returns students for a coach/mentor with their
+// coach_id, coach_name, mentor_id, and mentor_name populated.
+func (s *Store) ListStudentsWithRelations(ctx context.Context, userID string) ([]*models.StudentWithRelations, error) {
+	students, err := s.ListStudentsForCoachOrMentor(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(students) == 0 {
+		return []*models.StudentWithRelations{}, nil
+	}
+
+	// Collect student IDs
+	ids := make([]string, len(students))
+	for i, st := range students {
+		ids[i] = st.ID
+	}
+
+	// Fetch relations for these students
+	var relations []models.Relation
+	if err := s.DB.WithContext(ctx).Where("user_id IN ?", ids).Find(&relations).Error; err != nil {
+		return nil, err
+	}
+	relMap := make(map[string]models.Relation)
+	for _, r := range relations {
+		relMap[r.UserID] = r
+	}
+
+	// Build name lookup for coaches/mentors
+	nameMap, err := s.buildUserNameMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*models.StudentWithRelations, len(students))
+	for i, st := range students {
+		swr := &models.StudentWithRelations{User: st}
+		if r, ok := relMap[st.ID]; ok {
+			if r.CoachID != "" {
+				swr.CoachID = r.CoachID
+				swr.CoachName = nameMap[r.CoachID]
+			}
+			if r.MentorID != "" {
+				swr.MentorID = r.MentorID
+				swr.MentorName = nameMap[r.MentorID]
+			}
+		}
+		result[i] = swr
+	}
+	return result, nil
+}
+
 func (s *Store) IsRelatedStudent(ctx context.Context, requesterID string, studentID string) (bool, error) {
 	// admin quick-check
 	u, err := s.GetUserByID(ctx, requesterID)
