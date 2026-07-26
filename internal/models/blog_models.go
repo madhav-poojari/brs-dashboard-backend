@@ -3,6 +3,7 @@ package models
 import (
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -28,7 +29,7 @@ type Blog struct {
 	Slug          string         `gorm:"uniqueIndex;not null" json:"slug"`
 	Title         string         `gorm:"not null" json:"title"`
 	Summary       string         `gorm:"type:text" json:"summary"`
-	Content       string         `gorm:"type:text;not null" json:"content"` // TipTap JSON stored as string
+	Content       datatypes.JSON `gorm:"type:jsonb;not null" json:"content"` // TipTap JSON stored as JSONB
 	CoverImageURL string         `gorm:"column:cover_image_url" json:"cover_image_url"`
 	AuthorID      string         `gorm:"size:10;not null;index" json:"author_id"`
 	Author        User           `gorm:"foreignKey:AuthorID;references:ID" json:"author,omitempty"`
