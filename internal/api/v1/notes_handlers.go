@@ -247,6 +247,67 @@ func (h *NotesHandler) UpdateLessonPlan(w http.ResponseWriter, r *http.Request) 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "lesson plan updated", nil, nil)
 }
 
+// GET /api/v1/notes/bulk-summary
+// Returns a map of studentID -> {lesson_plan_title, lesson_plan_description, latest_note_title}
+// for all students visible to the authenticated coach/mentor/admin.
+func (h *NotesHandler) GetBulkNotesSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	current := auth.GetUserFromCtx(ctx)
+	if current == nil {
+		utils.WriteJSONResponse(w, http.StatusUnauthorized, false, "unauthorized", nil, nil)
+		return
+	}
+
+	if current.Role == models.RoleStudent {
+		utils.WriteJSONResponse(w, http.StatusForbidden, false, "forbidden", nil, nil)
+		return
+	}
+
+	// Determine minVisibility based on role
+	minVisibility := 4 // default: only fully public
+	switch current.Role {
+	case models.RoleAdmin:
+		minVisibility = 1 // admin sees everything
+	case models.RoleMentor:
+		minVisibility = 2 // mentor sees L2+
+	case models.RoleCoach:
+		minVisibility = 3 // coach sees L3+
+	}
+
+	// Get student IDs based on role
+	var studentIDs []string
+	if current.Role == models.RoleAdmin {
+		students, err := h.store.ListActiveStudents(ctx, true)
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching students", nil, err.Error())
+			return
+		}
+		studentIDs = make([]string, len(students))
+		for i, s := range students {
+			studentIDs[i] = s.ID
+		}
+	} else {
+		// coach or mentor
+		students, err := h.store.ListStudentsForCoachOrMentor(ctx, current.ID)
+		if err != nil {
+			utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching students", nil, err.Error())
+			return
+		}
+		studentIDs = make([]string, len(students))
+		for i, s := range students {
+			studentIDs[i] = s.ID
+		}
+	}
+
+	summaryMap, err := h.store.GetBulkNotesSummary(ctx, studentIDs, minVisibility)
+	if err != nil {
+		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "error fetching notes summary", nil, err.Error())
+		return
+	}
+
+	utils.WriteJSONResponse(w, http.StatusOK, true, "ok", summaryMap, nil)
+}
+
 // GET /api/v1/notes/
 func (h *NotesHandler) GetNotesByUser(w http.ResponseWriter, r *http.Request) {
 	// userID := chi.URLParam(r, "id")
