@@ -40,6 +40,7 @@ type Blog struct {
 	UpdatedAt     time.Time      `json:"updated_at"`
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 	Tags          []BlogTag      `gorm:"many2many:blog_tag_mappings;joinForeignKey:BlogID;joinReferences:BlogTagID" json:"tags,omitempty"`
+	CanEdit       bool           `gorm:"-" json:"can_edit"`
 }
 
 // BlogTag represents a tag that can be applied to blogs.
