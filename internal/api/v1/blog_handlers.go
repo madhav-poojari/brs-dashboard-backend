@@ -12,6 +12,7 @@ import (
 	"github.com/madhava-poojari/dashboard-api/internal/models"
 	"github.com/madhava-poojari/dashboard-api/internal/store"
 	"github.com/madhava-poojari/dashboard-api/internal/utils"
+	"gorm.io/datatypes"
 )
 
 // BlogHandler handles blog-related HTTP endpoints.
@@ -34,12 +35,12 @@ func NewBlogHandler(s serviceStore, cfg *config.Config) *BlogHandler {
 
 func (h *BlogHandler) CreateBlog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title      string `json:"title"`
-		Summary    string `json:"summary"`
-		Content    string `json:"content"`    // TipTap JSON as string
-		Visibility string `json:"visibility"` // "public" | "internal"
-		Status     string `json:"status"`     // "draft" | "published"
-		Tags       []string `json:"tags"`
+		Title      string          `json:"title"`
+		Summary    string          `json:"summary"`
+		Content    json.RawMessage `json:"content"`    // TipTap JSON object
+		Visibility string          `json:"visibility"` // "public" | "internal"
+		Status     string          `json:"status"`     // "draft" | "published"
+		Tags       []string        `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request body", nil, err.Error())
@@ -71,7 +72,7 @@ func (h *BlogHandler) CreateBlog(w http.ResponseWriter, r *http.Request) {
 	blog := &models.Blog{
 		Title:      req.Title,
 		Summary:    req.Summary,
-		Content:    req.Content,
+		Content:    datatypes.JSON(req.Content),
 		AuthorID:   current.ID,
 		Visibility: visibility,
 		Status:     status,
@@ -216,12 +217,12 @@ func (h *BlogHandler) UpdateBlog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title      *string  `json:"title"`
-		Summary    *string  `json:"summary"`
-		Content    *string  `json:"content"`
-		Visibility *string  `json:"visibility"`
-		Status     *string  `json:"status"`
-		Tags       *[]string `json:"tags"`
+		Title      *string          `json:"title"`
+		Summary    *string          `json:"summary"`
+		Content    *json.RawMessage `json:"content"`
+		Visibility *string          `json:"visibility"`
+		Status     *string          `json:"status"`
+		Tags       *[]string        `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		utils.WriteJSONResponse(w, http.StatusBadRequest, false, "invalid request body", nil, err.Error())
@@ -236,7 +237,7 @@ func (h *BlogHandler) UpdateBlog(w http.ResponseWriter, r *http.Request) {
 		updates["summary"] = *req.Summary
 	}
 	if req.Content != nil {
-		updates["content"] = *req.Content
+		updates["content"] = datatypes.JSON(*req.Content)
 	}
 	if req.Visibility != nil {
 		updates["visibility"] = *req.Visibility
