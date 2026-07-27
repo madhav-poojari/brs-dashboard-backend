@@ -183,16 +183,14 @@ func (h *BlogHandler) GetBlog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If it's a draft, only author or those with edit permission can view
-	if blog.Status == models.BlogStatusDraft {
-		if !h.store.CanEditBlog(ctx, current, blog) {
-			utils.WriteJSONResponse(w, http.StatusNotFound, false, "blog not found", nil, nil)
-			return
-		}
-	}
-
 	// Populate the can_edit field for the frontend
 	blog.CanEdit = h.store.CanEditBlog(ctx, current, blog)
+
+	// If it's a draft, only author or those with edit permission can view
+	if blog.Status == models.BlogStatusDraft && !blog.CanEdit {
+		utils.WriteJSONResponse(w, http.StatusNotFound, false, "blog not found", nil, nil)
+		return
+	}
 
 	utils.WriteJSONResponse(w, http.StatusOK, true, "success", blog, nil)
 }
