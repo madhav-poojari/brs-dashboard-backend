@@ -52,6 +52,10 @@ func NewGormStore(cfg *config.Config) (*Store, error) {
 		&models.UnitTransaction{},
 		&models.Notification{},
 		&models.NotificationConfig{},
+		&models.Blog{},
+		&models.BlogTag{},
+		&models.BlogTagMapping{},
+		&models.BlogImage{},
 	); err != nil {
 		return nil, err
 	}
