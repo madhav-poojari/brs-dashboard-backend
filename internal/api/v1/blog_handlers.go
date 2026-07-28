@@ -111,7 +111,7 @@ func (h *BlogHandler) ListBlogs(w http.ResponseWriter, r *http.Request) {
 		pageSize = ps
 	}
 
-	blogs, total, err := h.store.ListBlogs(ctx, page, pageSize)
+	blogs, total, err := h.store.ListBlogs(ctx, page, pageSize, current.Role)
 	if err != nil {
 		utils.WriteJSONResponse(w, http.StatusInternalServerError, false, "failed to list blogs", nil, err.Error())
 		return
@@ -189,6 +189,12 @@ func (h *BlogHandler) GetBlog(w http.ResponseWriter, r *http.Request) {
 	// If it's a draft, only author or those with edit permission can view
 	if blog.Status == models.BlogStatusDraft && !blog.CanEdit {
 		utils.WriteJSONResponse(w, http.StatusNotFound, false, "blog not found", nil, nil)
+		return
+	}
+
+	// Students can only view public blogs
+	if current.Role == models.RoleStudent && blog.Visibility == models.BlogVisibilityInternal {
+		utils.WriteJSONResponse(w, http.StatusForbidden, false, "access denied", nil, nil)
 		return
 	}
 

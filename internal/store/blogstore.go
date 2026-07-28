@@ -99,19 +99,27 @@ func (s *Store) GetBlogByID(ctx context.Context, id string) (*models.Blog, error
 }
 
 // ListBlogs returns paginated published (non-draft) blogs, ordered by published_at DESC.
-func (s *Store) ListBlogs(ctx context.Context, page, pageSize int) ([]models.Blog, int64, error) {
+// Students only see public blogs; coaches/mentors/admins see both public and internal.
+func (s *Store) ListBlogs(ctx context.Context, page, pageSize int, role models.Role) ([]models.Blog, int64, error) {
 	var total int64
 	q := s.DB.WithContext(ctx).Model(&models.Blog{}).Where("status = ?", models.BlogStatusPublished)
+	if role == models.RoleStudent {
+		q = q.Where("visibility = ?", models.BlogVisibilityPublic)
+	}
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var blogs []models.Blog
 	offset := (page - 1) * pageSize
-	if err := s.DB.WithContext(ctx).
+	query := s.DB.WithContext(ctx).
 		Preload("Tags").
 		Preload("Author").
-		Where("status = ?", models.BlogStatusPublished).
+		Where("status = ?", models.BlogStatusPublished)
+	if role == models.RoleStudent {
+		query = query.Where("visibility = ?", models.BlogVisibilityPublic)
+	}
+	if err := query.
 		Order("published_at DESC").
 		Limit(pageSize).
 		Offset(offset).
